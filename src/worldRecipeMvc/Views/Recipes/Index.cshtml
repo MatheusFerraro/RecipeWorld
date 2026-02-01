@@ -1,0 +1,204 @@
+﻿@using Microsoft.AspNetCore.Identity
+@using worldRecipeMvc.Data
+@inject SignInManager<RecipeWorldUser> SignInManager
+@inject UserManager<RecipeWorldUser> UserManager
+@model worldRecipeMvc.Models.ViewModels.RecipesIndexViewModel
+
+@{
+    ViewData["Title"] = "Recipes";
+    var totalPages = (int)Math.Ceiling(Model.TotalCount / (double)Model.PageSize);
+}
+
+<div class="container-fluid">
+    <div class="row mb-3 align-items-center">
+        <div class="col-md-6">
+            <h1 class="mb-0">@ViewData["Title"]</h1>
+            <p class="text-muted">@Model.TotalCount recipe(s) found</p>
+        </div>
+        <div class="col-md-6 text-end">
+            @if (SignInManager.IsSignedIn(User))
+            {
+                <a asp-action="Create" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> Create New Recipe
+                </a>
+            }
+        </div>
+    </div>
+
+    @if (TempData["SaveConfirmation"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <strong>Success!</strong> @TempData["SaveConfirmation"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <!-- Search and Filter Bar -->
+    <div class="search-filter-bar">
+        <form asp-action="Index" method="get">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <input type="text" 
+                           name="searchTerm" 
+                           class="form-control" 
+                           placeholder="Search recipes..." 
+                           value="@Model.SearchTerm">
+                </div>
+                <div class="col-md-3">
+                    <select name="categoryFilter" class="form-select">
+                        <option value="">All Categories</option>
+                        @foreach (var category in Model.Categories)
+                        {
+                            <option value="@category.CategoryID" 
+                                    selected="@(Model.CategoryFilter == category.CategoryID)">
+                                @category.CategoryName
+                            </option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select name="statusFilter" class="form-select">
+                        <option value="">All Status</option>
+                        <option value="Public" selected="@(Model.StatusFilter == "Public")">Public</option>
+                        <option value="Draft" selected="@(Model.StatusFilter == "Draft")">Draft</option>
+                        <option value="Private" selected="@(Model.StatusFilter == "Private")">Private</option>
+                        <option value="Pending" selected="@(Model.StatusFilter == "Pending")">Pending</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search"></i> Search
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    @if (!Model.Recipes.Any())
+    {
+        <div class="alert alert-info" role="alert">
+            <h4 class="alert-heading">No recipes found</h4>
+            <p>There are currently no recipes matching your criteria.</p>
+            @if (SignInManager.IsSignedIn(User))
+            {
+                <hr>
+                <p class="mb-0">
+                    <a asp-action="Create" class="btn btn-primary">Create the first recipe!</a>
+                </p>
+            }
+        </div>
+    }
+    else
+    {
+        <!-- Recipe Cards Grid -->
+        <div class="card-grid">
+            @foreach (var item in Model.Recipes)
+            {
+                <div class="recipe-card">
+                    <img src="@(item.ImageUrl ?? "/WebsiteImages/RecipeDefaultImageNotAvailable.png")" 
+                         alt="@item.RecipeName" 
+                         onerror="this.src='/websiteImages/RecipeDefaultImageNotAvailable.png'">
+                    
+                    <div class="recipe-card-body">
+                        <h5 class="recipe-card-title">@item.RecipeName</h5>
+                        
+                        <p class="recipe-card-text">
+                            <span class="badge badge-@(item.Status?.ToLower() ?? "draft")">
+                                @item.Status
+                            </span>
+                        </p>
+                        
+                        <p class="recipe-card-text">
+                            <strong>Category:</strong> @(item.Category?.CategoryName ?? "Uncategorized")
+                        </p>
+                        
+                        <p class="recipe-card-text">
+                            <strong>Prep:</strong> @(item.PrepTime ?? "N/A") | 
+                            <strong>Cook:</strong> @(item.CookTime ?? "N/A")
+                        </p>
+                        
+                        <p class="recipe-card-text">
+                            <strong>Servings:</strong> @(item.NumberOfServings?.ToString() ?? "N/A")
+                        </p>
+                        
+                        <p class="recipe-card-text text-muted">
+                            <small>By @(item.Owner?.UserName ?? "Unknown")</small>
+                        </p>
+                        
+                        <div class="d-grid gap-2">
+                            <a asp-action="Details" asp-route-id="@item.RecipeID" 
+                               class="btn btn-outline-primary btn-sm">
+                                View Details
+                            </a>
+                            
+                            @if (SignInManager.IsSignedIn(User))
+                            {
+                                <div class="btn-group" role="group">
+                                    <a asp-action="Edit" asp-route-id="@item.RecipeID" 
+                                       class="btn btn-outline-secondary btn-sm">
+                                        Edit
+                                    </a>
+                                    <a asp-action="Delete" asp-route-id="@item.RecipeID" 
+                                       class="btn btn-outline-danger btn-sm">
+                                        Delete
+                                    </a>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Pagination -->
+        @if (totalPages > 1)
+        {
+            <div class="pagination-wrapper">
+                <div class="pagination-info">
+                    Showing @((Model.PageNumber - 1) * Model.PageSize + 1) to 
+                    @(Math.Min(Model.PageNumber * Model.PageSize, Model.TotalCount)) of 
+                    @Model.TotalCount recipes
+                </div>
+                <nav>
+                    <ul class="pagination">
+                        <li class="page-item @(Model.PageNumber == 1 ? "disabled" : "")">
+                            <a class="page-link" 
+                               asp-action="Index" 
+                               asp-route-pageNumber="@(Model.PageNumber - 1)"
+                               asp-route-searchTerm="@Model.SearchTerm"
+                               asp-route-categoryFilter="@Model.CategoryFilter"
+                               asp-route-statusFilter="@Model.StatusFilter">
+                                Previous
+                            </a>
+                        </li>
+
+                        @for (int i = 1; i <= totalPages; i++)
+                        {
+                            <li class="page-item @(i == Model.PageNumber ? "active" : "")">
+                                <a class="page-link" 
+                                   asp-action="Index" 
+                                   asp-route-pageNumber="@i"
+                                   asp-route-searchTerm="@Model.SearchTerm"
+                                   asp-route-categoryFilter="@Model.CategoryFilter"
+                                   asp-route-statusFilter="@Model.StatusFilter">
+                                    @i
+                                </a>
+                            </li>
+                        }
+
+                        <li class="page-item @(Model.PageNumber == totalPages ? "disabled" : "")">
+                            <a class="page-link" 
+                               asp-action="Index" 
+                               asp-route-pageNumber="@(Model.PageNumber + 1)"
+                               asp-route-searchTerm="@Model.SearchTerm"
+                               asp-route-categoryFilter="@Model.CategoryFilter"
+                               asp-route-statusFilter="@Model.StatusFilter">
+                                Next
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+        }
+    }
+</div>

@@ -1,0 +1,148 @@
+﻿@using Microsoft.AspNetCore.Identity
+@using worldRecipeMvc.Data
+@inject SignInManager<RecipeWorldUser> SignInManager
+@inject UserManager<RecipeWorldUser> UserManager
+@model IEnumerable<worldRecipeMvc.Models.Category>
+
+@{
+    ViewData["Title"] = "Categories";
+}
+
+<div class="container-fluid">
+    <div class="row mb-3 align-items-center">
+        <div class="col-md-6">
+            <h1 class="mb-0">@ViewData["Title"]</h1>
+        </div>
+        <div class="col-md-6 text-end">
+            @if (SignInManager.IsSignedIn(User))
+            {
+                <a asp-action="Create" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> Create New Category
+                </a>
+            }
+        </div>
+    </div>
+
+    @if (TempData["Confirmation"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <strong>Success!</strong> @TempData["Confirmation"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>Error!</strong> @TempData["Error"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <!-- Responsive Table -->
+    <div class="table-responsive">
+        <table class="table table-hover table-striped">
+            <thead class="table-light">
+                <tr>
+                    <th>
+                        <a asp-action="index" asp-route-sortOrder="@ViewData["NameSortParam"]" class="text-decoration-none">
+                            @Html.DisplayNameFor(model => model.CategoryName)
+                            <i class="bi bi-arrow-down-up"></i>
+                        </a>
+                    </th>
+                    <th>
+                        @Html.DisplayNameFor(model => model.CategoryDescription)
+                    </th>
+                    <th class="text-center">Status</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Model)
+                {
+                    <tr>
+                        <td>
+                            <strong>@item.CategoryName</strong>
+                        </td>
+                        <td>
+                            @(item.CategoryDescription ?? "No description")
+                        </td>
+                        <td class="text-center">
+                            @if (item.IsApproved == true)
+                            {
+                                <span class="badge bg-success">Approved</span>
+                            }
+                            else if (item.IsApproved == false)
+                            {
+                                <span class="badge bg-danger">Rejected</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning text-dark">Pending</span>
+                            }
+                        </td>
+                        <td class="text-center">
+                            <div class="btn-group" role="group">
+                                <a asp-action="Details" asp-route-id="@item.CategoryID" 
+                                   class="btn btn-sm btn-info text-white" title="Details">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                
+                                @if (SignInManager.IsSignedIn(User))
+                                {
+                                    @if (User.IsInRole("Admin"))
+                                    {
+                                        <a asp-action="Edit" asp-route-id="@item.CategoryID" 
+                                           class="btn btn-sm btn-secondary" title="Edit">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                    }
+                                    
+                                    <a asp-action="Delete" asp-route-id="@item.CategoryID" 
+                                       class="btn btn-sm btn-danger" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </a>
+                                }
+
+                                @if (User.IsInRole("Admin"))
+                                {
+                                    @if (item.IsApproved != true)
+                                    {
+                                        <form asp-action="Approve" asp-route-id="@item.CategoryID" method="post" class="d-inline">
+                                            <button type="submit" class="btn btn-sm btn-success" title="Approve">
+                                                <i class="bi bi-check-circle"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                    @if (item.IsApproved != false)
+                                    {
+                                        <form asp-action="Reject" asp-route-id="@item.CategoryID" method="post" class="d-inline">
+                                            <button type="submit" class="btn btn-sm btn-warning" title="Reject">
+                                                <i class="bi bi-x-circle"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (!Model.Any())
+    {
+        <div class="alert alert-info text-center" role="alert">
+            <h4 class="alert-heading">No categories found</h4>
+            <p>There are currently no categories available.</p>
+            @if (SignInManager.IsSignedIn(User))
+            {
+                <hr>
+                <p class="mb-0">
+                    <a asp-action="Create" class="btn btn-primary">Create the first category!</a>
+                </p>
+            }
+        </div>
+    }
+</div>

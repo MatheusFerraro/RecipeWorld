@@ -1,0 +1,146 @@
+﻿@{
+    ViewData["Title"] = "Home";
+}
+
+<!-- Hero Section -->
+<div class="hero-section">
+    <div class="container">
+        <h1>Welcome to Recipe World</h1>
+        <p class="lead">Discover delicious recipes from around the world!</p>
+        <a asp-controller="Recipes" asp-action="Index" class="btn btn-light btn-lg">
+            <i class="bi bi-search"></i> Explore Recipes
+        </a>
+    </div>
+</div>
+
+<div class="container">
+    <div class="row">
+        <!-- Featured Recipe Section -->
+        <div class="col-lg-8 mb-4">
+            <h2 class="mb-4">
+                <i class="bi bi-star-fill text-warning"></i> Featured Recipe
+            </h2>
+            <a asp-controller="Recipes" asp-action="Details" asp-route-id="1" class="text-decoration-none">
+                <div class="card featured-recipe-card">
+                    <img src="~/WebsiteImages/5939580-overnight-cinnamon-rolls.jpg" 
+                         class="card-img-top" 
+                         alt="Overnight Cinnamon Rolls"
+                         onerror="this.src='/websiteImages/RecipeDefaultImage.png'">
+                    <div class="card-body">
+                        <h3 class="card-title text-dark">Overnight Cinnamon Rolls</h3>
+                        <p class="card-text text-muted">
+                            <i class="bi bi-clock"></i> Prep: 20 mins | 
+                            <i class="bi bi-fire"></i> Cook: 45 mins | 
+                            <i class="bi bi-people"></i> Serves: 8
+                        </p>
+                        <p class="card-text">
+                            Soft, fluffy, and packed with cinnamon flavor - these overnight cinnamon rolls 
+                            are perfect for a special breakfast or brunch!
+                        </p>
+                        <span class="badge bg-success">Published</span>
+                        <span class="badge" style="background-color: #93B7BE; color: white;">Desserts</span>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- Popular Recipes Sidebar -->
+        <div class="col-lg-4 mb-4">
+            <h2 class="mb-4">
+                <i class="bi bi-fire text-danger"></i> Popular Recipes
+            </h2>
+            
+            <a asp-controller="Recipes" asp-action="Details" asp-route-id="1" class="text-decoration-none">
+                <div class="card popular-recipe-card">
+                    <img src="~/WebsiteImages/5939580-overnight-cinnamon-rolls.jpg" 
+                         class="card-img-top" 
+                         alt="Overnight Cinnamon Rolls"
+                         onerror="this.src='/websiteImages/RecipeDefaultImage.png'">
+                    <div class="card-body">
+                        <h5 class="card-title text-dark">Overnight Cinnamon Rolls</h5>
+                        <p class="card-text text-muted small">
+                            <i class="bi bi-clock"></i> 65 mins
+                        </p>
+                    </div>
+                </div>
+            </a>
+            
+            <a asp-controller="Recipes" asp-action="Details" asp-route-id="2" class="text-decoration-none">
+                <div class="card popular-recipe-card">
+                    <img src="~/WebsiteImages/grandmas-chicken-soup.jpg" 
+                         class="card-img-top" 
+                         alt="Grandma's Chicken Soup"
+                         onerror="this.src='/websiteImages/RecipeDefaultImage.png'">
+                    <div class="card-body">
+                        <h5 class="card-title text-dark">Grandma's Chicken Soup</h5>
+                        <p class="card-text text-muted small">
+                            <i class="bi bi-clock"></i> 90 mins
+                        </p>
+                    </div>
+                </div>
+            </a>
+            
+            <a asp-controller="Recipes" asp-action="Details" asp-route-id="3" class="text-decoration-none">
+                <div class="card popular-recipe-card">
+                    <img src="~/WebsiteImages/Protein-Pancakes.jpg" 
+                         class="card-img-top" 
+                         alt="Protein Pancakes"
+                         onerror="this.src='/websiteImages/RecipeDefaultImage.png'">
+                    <div class="card-body">
+                        <h5 class="card-title text-dark">Protein Pancakes</h5>
+                        <p class="card-text text-muted small">
+                            <i class="bi bi-clock"></i> 30 mins
+                        </p>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    <!-- Quick Links Section -->
+    <div class="row mt-4 mb-5">
+        <div class="col-md-4 mb-3">
+            <div class="card h-100 text-center" style="border-color: #93B7BE;">
+                <div class="card-body">
+                    <i class="bi bi-book display-3" style="color: #93B7BE;"></i>
+                    <h4 class="card-title mt-3">Browse Recipes</h4>
+                    <p class="card-text">Explore our collection of delicious recipes from around the world.</p>
+                    <a asp-controller="Recipes" asp-action="Index" class="btn btn-primary">
+                        View All Recipes
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4 mb-3">
+            <div class="card h-100 text-center" style="border-color: #93B7BE;">
+                <div class="card-body">
+                    <i class="bi bi-grid display-3" style="color: #93B7BE;"></i>
+                    <h4 class="card-title mt-3">Categories</h4>
+                    <p class="card-text">Discover recipes organized by category - desserts, mains, and more!</p>
+                    <a asp-controller="Categories" asp-action="Index" class="btn btn-primary">
+                        View Categories
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4 mb-3">
+            <div class="card h-100 text-center" style="border-color: #93B7BE;">
+                <div class="card-body">
+                    <i class="bi bi-basket display-3" style="color: #93B7BE;"></i>
+                    <h4 class="card-title mt-3">Ingredients</h4>
+                    <p class="card-text">Browse ingredients and find recipes using what you have on hand.</p>
+                    <a asp-controller="Ingredients" asp-action="Index" class="btn btn-primary">
+                        View Ingredients
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
+

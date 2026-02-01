@@ -1,0 +1,6 @@
+﻿@model worldRecipeMvc.Models.Category
+
+<h2>Category @TempData["Confirmation"]!</h2>
+<p>The Category<strong> @Model.CategoryName</strong> was successfully @TempData["Confirmation"] and is waiting for approval.</p>
+
+<a asp-action="Index">Back to Categories</a>

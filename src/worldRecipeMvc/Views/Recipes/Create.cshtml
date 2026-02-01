@@ -1,0 +1,204 @@
+﻿@model worldRecipeMvc.Models.ViewModels.CreateRecipeViewModel
+
+@{
+    ViewData["Title"] = "Create";
+}
+
+<div class="position-relative">
+    <h1>Create New Recipe</h1>
+    <h3 class="position-absolute top-0 end-0">@ViewBag.currentDate</h3>
+    <h4>@Model.Recipe.RecipeName</h4>
+    <hr />
+</div>
+
+
+<form asp-action="Create" enctype="multipart/form-data">
+    <div class="container position-relative">
+        <div class="row justify-content-start">
+            <div class="col-md-5">
+
+                <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                <div class="form-group mb-1 pb-1">
+                    <label asp-for="Recipe.RecipeName" class="control-label"></label>
+                    <input asp-for="Recipe.RecipeName" class="form-control" />
+                    <span asp-validation-for="Recipe.RecipeName" class="text-danger"></span>
+                </div>
+                <div class="form-group mb-1 pb-1">
+                    <label asp-for="Recipe.CategoryID" class="control-label"></label>
+                    <select asp-for="Recipe.CategoryID" class="form-control" asp-items="Model.CategoryList">
+                        <option value="">-- Select Category --</option>
+                    </select>
+                    <span asp-validation-for="Recipe.CategoryID" class="text-danger"></span>
+                </div>
+                <div class ="form-group row">
+                    <div class="form-group col-md-6 mb-1 pb-1">
+                        <label asp-for="Recipe.PrepTime" class="control-label"></label> (in Minutes)
+                        <input asp-for="Recipe.PrepTime" class="form-control" />
+                        <span asp-validation-for="Recipe.PrepTime" class="text-danger"></span>
+                    </div>
+                    <div class="form-group col-md-6 mb-1 pb-1">
+                        <label asp-for="Recipe.NumberOfServings" class="control-label"></label>
+                        <input asp-for="Recipe.NumberOfServings" class="form-control" />
+                        <span asp-validation-for="Recipe.NumberOfServings" class="text-danger"></span>
+                    </div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-6">
+                        <label asp-for="Recipe.CookTime" class="control-label"></label> (in Minutes)
+                        <input asp-for="Recipe.CookTime" class="form-control" />
+                        <span asp-validation-for="Recipe.CookTime" class="text-danger"></span>
+                    </div>
+                    <div class="form-group col-md-6 mb-1 pb-1">
+                        <label asp-for="Recipe.Temperature" class="control-label"></label> (in Fahrenheit)
+                        <input asp-for="Recipe.Temperature" class="form-control" />
+                        <span asp-validation-for="Recipe.Temperature" class="text-danger"></span>
+                    </div>
+                </div>
+                <div class="form-group mb-1 pb-1">
+                    <label asp-for="Recipe.Instructions" class="control-label"></label>
+                    <textarea asp-for="Recipe.Instructions" class="form-control" rows="4"></textarea>
+                    <span asp-validation-for="Recipe.Instructions" class="text-danger"></span>
+                </div>
+                <div class="form-group mb-1 pb-1">
+                    <label asp-for="Recipe.Tips" class="control-label"></label>
+                    <textarea asp-for="Recipe.Tips" class="form-control" rows="2"></textarea>
+                    <span asp-validation-for="Recipe.Tips" class="text-danger"></span>
+                </div>
+                <div class="pt-4">
+                    <h4>Recipe Image</h4>
+                    <div class="form-group mb-3">
+                        <label for="imageFile" class="form-label">Upload Image (Optional)</label>
+                        <input type="file" 
+                               class="form-control" 
+                               id="imageFile" 
+                               name="imageFile" 
+                               accept="image/*"
+                               onchange="previewImage(event)" />
+                        <small class="form-text text-muted">Accepted formats: JPG, PNG, GIF, WEBP (Max 5MB)</small>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label asp-for="Recipe.ImageUrl" class="form-label">Or Enter Image URL</label>
+                        <input asp-for="Recipe.ImageUrl" class="form-control" placeholder="https://example.com/image.jpg" />
+                        <span asp-validation-for="Recipe.ImageUrl" class="text-danger"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Preview:</label>
+                        <img id="imagePreview" 
+                             src="@Url.Content("~/WebsiteImages/RecipeDefaultImageNotAvailable.png")" 
+                             alt="Recipe preview" 
+                             style="width:100%; max-height:300px; object-fit:cover; border-radius:8px;" />
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-1"></div>
+            <div class="col-md-6 position-relative">
+                <h4 class="text-center">Ingredients</h4>
+                @for (int i = 0; i < Model.Ingredients.Count; i++)
+                {
+                    <input type="hidden" asp-for="Ingredients[i].RecipeID" />
+
+                    <div class="row justify-content-start">
+                        <div class="form-group col-md-5">
+                            <label>Ingredient</label>
+
+                            <select asp-for="Ingredients[i].IngredientID" class="form-control" asp-items="Model.IngredientList">
+                                <option value="">-- Select Ingredient --</option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-2">
+                            <label asp-for="Ingredients[i].Amount"></label>
+                            <input asp-for="Ingredients[i].Amount" class="form-control" />
+                            <span asp-validation-for="Ingredients[i].Amount" class="text-danger"></span>
+                        </div>
+                        <div class="form-group col-md-2">
+                            <label asp-for="Ingredients[i].Unit"></label>
+                            <input asp-for="Ingredients[i].Unit" class="form-control" />
+                        </div>
+                        <div class="form-group col-md-3" style="margin-top: 32px;">
+                            <button type="submit" name="action" value="Remove_@i" class="btn btn-danger btn-sm">
+                                Remove
+                            </button>
+                        </div>
+
+                    </div>
+                    <hr />
+                }
+                <div class="form-group mt-3">
+                    <input type="submit" name="action" value="Add Ingredient" class="btn btn-secondary" />
+                </div>
+
+            </div>
+@*          FOR WHEN UPLOAD IMAGE IS REQUIRED FOR SPRINT   
+            <div class="row gy-2">
+                <div class="col-md-4 p-2">
+                    <h4>Upload Main Recipe Image</h4>
+                    <input class="form-control" type="file" id="formFile">
+                </div>
+                <div class="col-md-4 p-2 offset-md-2">
+                    <h4>Upload Misc Recipe Images</h4>
+                    <p>You may upload 6 additional images to your Recipe</p>
+                    <input class="form-control" type="file" id="formFileMultiple" multiple>
+                </div>
+            </div> *@
+
+        </div>
+        <div class="form-group position-absolute bottom-0 end-0">
+            <input type="submit" name="action" value="Save Recipe" class="btn btn-success btn-lg" />
+        </div>
+        <div>
+            <a asp-action="Index">Back to List</a>
+        </div>
+    </div>
+</form>
+
+
+
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    <script>
+        function previewImage(event) {
+            const file = event.target.files[0];
+            const preview = document.getElementById('imagePreview');
+            
+            if (file) {
+                // Validate file size (5MB)
+                if (file.size > 5 * 1024 * 1024) {
+                    alert('File size must be less than 5MB');
+                    event.target.value = '';
+                    return;
+                }
+                
+                // Validate file type
+                const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+                if (!validTypes.includes(file.type)) {
+                    alert('Please select a valid image file (JPG, PNG, GIF, or WEBP)');
+                    event.target.value = '';
+                    return;
+                }
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                }
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // Preview URL input
+        document.getElementById('Recipe_ImageUrl')?.addEventListener('input', function(e) {
+            const url = e.target.value;
+            const preview = document.getElementById('imagePreview');
+            if (url) {
+                preview.src = url;
+                preview.onerror = function() {
+                    preview.src = '@Url.Content("~/WebsiteImages/RecipeDefaultImageNotAvailable.png")';
+                };
+            } else {
+                preview.src = '@Url.Content("~/WebsiteImages/RecipeDefaultImageNotAvailable.png")';
+            }
+        });
+    </script>
+}

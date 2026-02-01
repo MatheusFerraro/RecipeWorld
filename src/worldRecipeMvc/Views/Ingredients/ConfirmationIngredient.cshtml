@@ -1,0 +1,6 @@
+﻿@model worldRecipeMvc.Models.Ingredient
+
+<h2>Ingredient @TempData["Confirmation"]!</h2>
+<p>The Ingredient<strong> @Model.IngredientName</strong> was successfully @TempData["Confirmation"] and is waiting for approval.</p>
+
+<a asp-action="Index">Back to Ingredients</a>
