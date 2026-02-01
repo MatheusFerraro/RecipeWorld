@@ -297,3 +297,6 @@ EmailSettings/
 *.db
 *.sqlite
 *.sqlite3
+
+# SQL Queries
+sql/
