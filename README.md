@@ -159,11 +159,13 @@ dotnet run
 dotnet test src/worldRecipeMvc.Tests/worldRecipeMvc.Tests.csproj
 ```
 
+## 📄 License
+
+MIT — see [LICENSE](LICENSE).
+
 ## 📬 Contact
 
 I am currently looking for internship or junior developer opportunities.
 
 - LinkedIn: https://www.linkedin.com/in/mcamiloferraro/
 - Email: mailto:matheus.ferraro@gmail.com
-
-This project is licensed under the MIT License.
