@@ -1,188 +1,142 @@
-# Recipe World - ASP.NET Core MVC Recipe Management System
+# Recipe World
 
-A full-featured recipe management web application built with ASP.NET Core 8.0, featuring user authentication, recipe management, ingredient tracking, and admin approval workflows.
+Recipe World is an ASP.NET Core MVC (.NET 8) web app for creating, managing, and discovering recipes. It includes authentication/authorization, admin approval workflows, ingredient tracking, image support, and a small Swagger-documented API.
+
+## Why this project is interesting
+
+- Role-based auth with ASP.NET Core Identity (admin vs regular users)
+- EF Core migrations + seeding (ready-to-run dev database)
+- Service layer (separates controllers from business logic)
+- Recipe workflow statuses (Draft/Public/Private/Pending)
+- Image support (upload to disk or use image URLs)
 
 ## Features
 
-- **User Authentication & Authorization**
-  # Recipe World - ASP.NET Core MVC Recipe Management System
+- User authentication & authorization (Identity + roles)
+- Recipe CRUD + status workflow
+- Ingredients database + linking ingredients to recipes (amounts/units)
+- Admin approval system for new ingredients
+- Search/filter + pagination
+- Responsive UI (Razor Views + Bootstrap)
 
-  A full-featured recipe management web application built with ASP.NET Core (.NET 8), featuring user authentication, recipe management, ingredient tracking, and admin approval workflows.
+## Tech Stack
 
-  ## Features
+- ASP.NET Core MVC (.NET 8)
+- SQL Server + Entity Framework Core
+- ASP.NET Core Identity
+- Razor Views + Bootstrap
+- Swagger/OpenAPI (development)
 
-  - **User Authentication & Authorization**
-    - ASP.NET Core Identity with role-based access
-    - User registration and login
-    - Email confirmation
-    - Two-factor authentication support
+## Quick Start (Local)
 
-  - **Recipe Management**
-    - Create, read, update, and delete recipes
-    - Recipe status workflow (Draft, Public, Private, Pending)
-    - Rich recipe details (prep time, cook time, servings, temperature)
-    - Step-by-step cooking instructions
-    - Recipe categorization
-    - Image support (upload recipe photos or use image URLs)
+### Prerequisites
 
-  - **Ingredient Management**
-    - Ingredient database
-    - Link ingredients to recipes with amounts and units
-    - Admin approval system for new ingredients
+- .NET 8 SDK: https://dotnet.microsoft.com/download/dotnet/8.0
+- SQL Server (LocalDB/Express/full): https://www.microsoft.com/sql-server/sql-server-downloads
 
-  - **Search & Filter**
-    - Search recipes by name or description
-    - Filter by category and status
-    - Pagination support
+### 1) Clone
 
-  - **Responsive Design**
-    - Mobile-friendly interface
-    - Bootstrap-based UI
+```bash
+git clone <your-repository-url>
+cd RecipeWorld
+```
 
-  ## Technologies Used
+### 2) Configure database
 
-  - **Backend**: ASP.NET Core MVC (.NET 8)
-  - **Database**: SQL Server + Entity Framework Core
-  - **Authentication**: ASP.NET Core Identity
-  - **Frontend**: Razor Views + Bootstrap
-  - **API Documentation**: Swagger/OpenAPI
-  - **Languages**: C#, HTML, CSS, JavaScript
+Edit `src/worldRecipeMvc/appsettings.json` and set `ConnectionStrings:RecipeWorldConnectionString`.
 
-  ## Prerequisites
+Example (LocalDB):
 
-  - .NET 8 SDK: https://dotnet.microsoft.com/download/dotnet/8.0
-  - SQL Server (LocalDB, Express, or full): https://www.microsoft.com/sql-server/sql-server-downloads
-  - Visual Studio 2022 or VS Code
-
-  ## Setup Instructions
-
-  ### 1) Clone the repository
-
-  ```bash
-  git clone <your-repository-url>
-  cd RecipeWorld
-  ```
-
-  ### 2) Configure your database
-
-  This project uses the `RecipeWorldConnectionString` from `src/worldRecipeMvc/appsettings.json`.
-
-  If you're using SQL Server LocalDB, update it to something like:
-
-  ```json
-  {
-    "ConnectionStrings": {
-      "RecipeWorldConnectionString": "Server=(localdb)\\mssqllocaldb;Database=WorldRecipeDb;Trusted_Connection=True;MultipleActiveResultSets=true"
-    }
+```json
+{
+  "ConnectionStrings": {
+    "RecipeWorldConnectionString": "Server=(localdb)\\mssqllocaldb;Database=RecipeWorldDB;Trusted_Connection=True;MultipleActiveResultSets=true"
   }
-  ```
+}
+```
 
-  ### 3) Apply migrations
+### 3) Apply migrations + seed data
 
-  ```bash
-  cd src/worldRecipeMvc
-  dotnet ef database update
-  ```
+From the app project folder:
 
-  This will create the database, apply migrations, and seed sample data (categories, ingredients, recipes, and demo accounts).
+```bash
+cd src/worldRecipeMvc
+dotnet ef database update
+```
 
-  ### 4) Configure image uploads (optional)
+If `dotnet ef` isn’t available, install the tool:
 
-  Recipe image uploads are stored in an external folder and served at `/images/recipes/*`.
+```bash
+dotnet tool install --global dotnet-ef
+```
 
-  Update the `ImageUpload:StoragePath` setting in `src/worldRecipeMvc/appsettings.json` to match your machine:
+### 4) (Optional) Configure image uploads
 
-  ```json
-  {
-    "ImageUpload": {
-      "StoragePath": "C:\\PATH\\TO\\RecipeWorld\\img\\worldRecipeMvc\\wwwroot\\images\\recipes"
-    }
+Uploads are stored on disk and served at `/images/recipes/*`.
+
+Set `ImageUpload:StoragePath` in `src/worldRecipeMvc/appsettings.json` to a folder that exists on your machine, for example:
+
+```json
+{
+  "ImageUpload": {
+    "StoragePath": "C:\\PATH\\TO\\RecipeWorld\\img\\worldRecipeMvc\\wwwroot\\images\\recipes"
   }
-  ```
+}
+```
 
-  ### 5) Run the app
+### 5) Run
 
-  From `src/worldRecipeMvc`:
+```bash
+dotnet run --project src/worldRecipeMvc/worldRecipeMvc.csproj
+```
 
-  ```bash
-  dotnet run
-  ```
+In Development, Swagger is available at `/swagger`.
 
-  Or from the repo root:
+## Demo Accounts
 
-  ```bash
-  dotnet run --project src/worldRecipeMvc/worldRecipeMvc.csproj
-  ```
+- Regular user: `demo@recipeworld.com` / `Demo123!`
+- Admin user: `admin@recipeworld.com` / `Admin123!`
 
-  In Development, Swagger is available at `/swagger`.
+Change these credentials in production.
 
-  ## Demo Accounts
+## Tests
 
-  For testing purposes, the following accounts are seeded:
+```bash
+dotnet test src/worldRecipeMvc.Tests/worldRecipeMvc.Tests.csproj
+```
 
-  - Regular user: `demo@recipeworld.com` / `Demo123!`
-  - Admin user: `admin@recipeworld.com` / `Admin123!`
+## Project Structure (high level)
 
-  Note: change these credentials in production.
+```
+RecipeWorld/
+  src/
+    worldRecipeMvc/            # ASP.NET Core MVC app
+    worldRecipeMvc.Tests/       # Test project
+  img/                          # Static image assets used by the app
+  sql/                          # SQL scripts (optional utilities)
+```
 
-  ## Sample Data
+## Troubleshooting
 
-  Seeded recipes include:
+### Database connection errors
 
-  1. Brigadeiro - Traditional Brazilian chocolate truffle dessert
-  2. Spaghetti Carbonara - Classic Italian pasta dish
-  3. Chicken Tikka Masala - Popular Indian curry
-  4. Margherita Pizza - Traditional Italian pizza
-  5. Classic Pancakes - American breakfast favorite
-  6. Caesar Salad - Fresh and crispy salad
+- Ensure SQL Server is running
+- Verify `RecipeWorldConnectionString` points to a reachable SQL Server instance
 
-  ## Project Structure
+Reset the database (destructive):
 
-  ```
-  RecipeWorld/
-    sql/
-    src/
-      worldRecipeMvc/
-        Areas/
-          Identity/
-        Controllers/
-        Data/
-        Models/
-        Services/
-        Views/
-        wwwroot/
-    img/
-      worldRecipeMvc/wwwroot/images/recipes/
-  ```
+```bash
+cd src/worldRecipeMvc
+dotnet ef database drop
+dotnet ef database update
+```
 
-  ## Troubleshooting
+### Email confirmation in development
 
-  ### Database connection errors
+If `RequireConfirmedAccount = true` is enabled, use the seeded demo accounts or configure an email sender.
 
-  - Ensure your SQL Server instance is running.
-  - Confirm `RecipeWorldConnectionString` points to a reachable SQL Server.
-  - Reset the database (destructive):
+## Contact
 
-  ```bash
-  dotnet ef database drop
-  dotnet ef database update
-  ```
-
-  ### Email confirmation in development
-
-  `RequireConfirmedAccount = true` is enabled. Use the seeded demo accounts, or configure an email sender for registration/confirmation.
-
-  ## Contributing
-
-  This is a portfolio project, but suggestions and feedback are welcome.
-
-  ## Contact
-
-  - GitHub: https://github.com/MatheusFerraro
-  - LinkedIn: https://www.linkedin.com/in/mcamiloferraro/
-  - Email: mailto:matheus.ferraro@gmail.com
-1. Ensure SQL Server is running
-
-2. Verify the connection string in `appsettings.json`
-
-3. Try resetting the database:
+- GitHub: https://github.com/MatheusFerraro
+- LinkedIn: https://www.linkedin.com/in/mcamiloferraro/
+- Email: mailto:matheus.ferraro@gmail.com
