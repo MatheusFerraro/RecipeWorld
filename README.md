@@ -101,12 +101,14 @@ The application will be available at:
 - HTTP: `http://localhost:5000`
 - Swagger API: `https://localhost:7001/swagger`
 
-### 5. Login with Demo Account
+## Demo Accounts
 
-```
-Email: demo@recipeworld.com
-Password: Demo123!
-```
+For testing purposes, the following accounts are seeded:
+
+- **Regular User**: demo@recipeworld.com / Demo123!
+- **Admin User**: admin@recipeworld.com / Admin123!
+
+⚠️ **Note**: Change these credentials in production environments.
 
 ## ?? Sample Data
 
