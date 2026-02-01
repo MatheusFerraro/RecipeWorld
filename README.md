@@ -27,6 +27,56 @@ Recipe World is an ASP.NET Core MVC (.NET 8) web app for creating, managing, and
 - Razor Views + Bootstrap
 - Swagger/OpenAPI (development)
 
+## Architecture
+
+```mermaid
+graph TB
+  subgraph Presentation["🎨 Presentation Layer"]
+    VIEWS["Razor Views<br/>Pages, Partials"]
+    MVC["MVC Controllers<br/>Recipes, Ingredients, Categories"]
+    API["API Controllers<br/>Controllers/Api"]
+    MW["Middleware<br/>ErrorHandlingMiddleware"]
+  end
+
+  subgraph Application["⚙️ Application / Business Layer"]
+    SVC["Services<br/>RecipeService, IngredientService, CategoryService"]
+    DTO["DTOs / ViewModels<br/>DTOs, Models/ViewModels"]
+  end
+
+  subgraph Infrastructure["🔧 Data / Infrastructure Layer"]
+    DBCTX["EF Core DbContext<br/>ApplicationDbContext"]
+    MIG["Migrations + Seeding<br/>Migrations, SeedData"]
+    ID["ASP.NET Core Identity<br/>Areas/Identity"]
+    FS["File Storage<br/>Recipe image uploads"]
+    SQL["SQL Server (LocalDB/Express/etc.)"]
+  end
+
+  subgraph Domain["💎 Domain Model"]
+    ENT["Models<br/>Recipe, Ingredient, Category, ..."]
+  end
+
+  VIEWS --> MVC
+  MVC --> SVC
+  API --> SVC
+  MW --> MVC
+
+  SVC --> DTO
+  SVC --> ENT
+
+  SVC --> DBCTX
+  DBCTX --> SQL
+  MIG --> DBCTX
+  ID --> DBCTX
+  FS --> VIEWS
+
+  style Domain fill:#4CAF50
+  style Application fill:#2196F3
+  style Infrastructure fill:#FF9800
+  style Presentation fill:#F44336
+```
+
+Note: GitHub renders Mermaid diagrams automatically. If you don't see the diagram, make sure your Markdown viewer supports Mermaid.
+
 ## Quick Start (Local)
 
 ### Prerequisites
@@ -109,8 +159,22 @@ dotnet test src/worldRecipeMvc.Tests/worldRecipeMvc.Tests.csproj
 
 ```
 RecipeWorld/
-  src/
-    worldRecipeMvc/            # ASP.NET Core MVC app
+    worldRecipeMvc/             # ASP.NET Core MVC app
+      Areas/
+        Identity/
+      Controllers/
+        Api/
+      Data/
+        Migrations/
+      DTOs/
+      Middleware/
+      Models/
+        ViewModels/
+      Services/
+      Views/
+      wwwroot/
+    worldRecipeMvc.Tests/        # Test project
+      Services/
     worldRecipeMvc.Tests/       # Test project
   img/                          # Static image assets used by the app
   sql/                          # SQL scripts (optional utilities)
