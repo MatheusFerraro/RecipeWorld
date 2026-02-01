@@ -1,224 +1,188 @@
-# ?? Recipe World - ASP.NET Core MVC Recipe Management System
+# Recipe World - ASP.NET Core MVC Recipe Management System
 
 A full-featured recipe management web application built with ASP.NET Core 8.0, featuring user authentication, recipe management, ingredient tracking, and admin approval workflows.
 
-## ? Features
+## Features
 
 - **User Authentication & Authorization**
-  - ASP.NET Core Identity with role-based access
-  - User registration and login
-  - Email confirmation
-  - Two-factor authentication support
+  # Recipe World - ASP.NET Core MVC Recipe Management System
 
-- **Recipe Management**
-- Create, read, update, and delete recipes
-- Recipe status workflow (Draft, Public, Private, Pending)
-- Rich recipe details including prep time, cook time, servings, and temperature
-- Step-by-step cooking instructions
-- Recipe categorization
-- **Image upload functionality** - Upload recipe photos or use image URLs
+  A full-featured recipe management web application built with ASP.NET Core (.NET 8), featuring user authentication, recipe management, ingredient tracking, and admin approval workflows.
 
-- **Ingredient Management**
-  - Comprehensive ingredient database
-  - Ingredient types and details
-  - Link ingredients to recipes with amounts and units
-  - Admin approval system for new ingredients
+  ## Features
 
-- **Search & Filter**
-  - Search recipes by name or description
-  - Filter by category and status
-  - Pagination support
+  - **User Authentication & Authorization**
+    - ASP.NET Core Identity with role-based access
+    - User registration and login
+    - Email confirmation
+    - Two-factor authentication support
 
-- **Responsive Design**
-  - Mobile-friendly interface
-  - Modern Bootstrap-based UI
-  - Card-based recipe display
+  - **Recipe Management**
+    - Create, read, update, and delete recipes
+    - Recipe status workflow (Draft, Public, Private, Pending)
+    - Rich recipe details (prep time, cook time, servings, temperature)
+    - Step-by-step cooking instructions
+    - Recipe categorization
+    - Image support (upload recipe photos or use image URLs)
 
-## ?? Technologies Used
+  - **Ingredient Management**
+    - Ingredient database
+    - Link ingredients to recipes with amounts and units
+    - Admin approval system for new ingredients
 
-- **Backend**: ASP.NET Core 8.0 MVC
-- **Database**: SQL Server with Entity Framework Core
-- **Authentication**: ASP.NET Core Identity
-- **Frontend**: Razor Views, Bootstrap 5
-- **API Documentation**: Swagger/OpenAPI
-- **Languages**: C# 12.0, HTML, CSS, JavaScript
+  - **Search & Filter**
+    - Search recipes by name or description
+    - Filter by category and status
+    - Pagination support
 
-## ?? Prerequisites
+  - **Responsive Design**
+    - Mobile-friendly interface
+    - Bootstrap-based UI
 
-- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [SQL Server](https://www.microsoft.com/en-us/sql-server/sql-server-downloads) (LocalDB, Express, or full version)
-- [Visual Studio 2022](https://visualstudio.microsoft.com/) or [Visual Studio Code](https://code.visualstudio.com/)
+  ## Technologies Used
 
-## ?? Setup Instructions
+  - **Backend**: ASP.NET Core MVC (.NET 8)
+  - **Database**: SQL Server + Entity Framework Core
+  - **Authentication**: ASP.NET Core Identity
+  - **Frontend**: Razor Views + Bootstrap
+  - **API Documentation**: Swagger/OpenAPI
+  - **Languages**: C#, HTML, CSS, JavaScript
 
-### 1. Clone the Repository
+  ## Prerequisites
 
-```bash
-git clone <your-repository-url>
-cd worldRecipeMvc
-```
+  - .NET 8 SDK: https://dotnet.microsoft.com/download/dotnet/8.0
+  - SQL Server (LocalDB, Express, or full): https://www.microsoft.com/sql-server/sql-server-downloads
+  - Visual Studio 2022 or VS Code
 
-### 2. Configure Database Connection
+  ## Setup Instructions
 
-Update the connection string in `appsettings.json`:
+  ### 1) Clone the repository
 
-```json
-{
-  "ConnectionStrings": {
-    "RecipeWorldConnectionString": "Server=(localdb)\\mssqllocaldb;Database=RecipeWorldDB;Trusted_Connection=true;MultipleActiveResultSets=true"
+  ```bash
+  git clone <your-repository-url>
+  cd RecipeWorld
+  ```
+
+  ### 2) Configure your database
+
+  This project uses the `RecipeWorldConnectionString` from `src/worldRecipeMvc/appsettings.json`.
+
+  If you're using SQL Server LocalDB, update it to something like:
+
+  ```json
+  {
+    "ConnectionStrings": {
+      "RecipeWorldConnectionString": "Server=(localdb)\\mssqllocaldb;Database=WorldRecipeDb;Trusted_Connection=True;MultipleActiveResultSets=true"
+    }
   }
-}
-```
+  ```
 
-### 3. Apply Database Migrations
+  ### 3) Apply migrations
 
-Open a terminal in the project directory and run:
+  ```bash
+  cd src/worldRecipeMvc
+  dotnet ef database update
+  ```
 
-```bash
-cd src/worldRecipeMvc
-dotnet ef database update
-```
+  This will create the database, apply migrations, and seed sample data (categories, ingredients, recipes, and demo accounts).
 
-This will:
-- Create the database
-- Apply all migrations
-- Seed sample data including:
-  - 6 recipe categories
-  - 23 common ingredients
-  - 6 delicious recipes 
-  - A demo user account
+  ### 4) Configure image uploads (optional)
 
-### 4. Run the Application
+  Recipe image uploads are stored in an external folder and served at `/images/recipes/*`.
 
-```bash
-dotnet run
-```
+  Update the `ImageUpload:StoragePath` setting in `src/worldRecipeMvc/appsettings.json` to match your machine:
 
-Or press `F5` in Visual Studio.
+  ```json
+  {
+    "ImageUpload": {
+      "StoragePath": "C:\\PATH\\TO\\RecipeWorld\\img\\worldRecipeMvc\\wwwroot\\images\\recipes"
+    }
+  }
+  ```
 
-The application will be available at:
-- HTTPS: `https://localhost:7001`
-- HTTP: `http://localhost:5000`
-- Swagger API: `https://localhost:7001/swagger`
+  ### 5) Run the app
 
-## Demo Accounts
+  From `src/worldRecipeMvc`:
 
-For testing purposes, the following accounts are seeded:
+  ```bash
+  dotnet run
+  ```
 
-- **Regular User**: demo@recipeworld.com / Demo123!
-- **Admin User**: admin@recipeworld.com / Admin123!
+  Or from the repo root:
 
-⚠️ **Note**: Change these credentials in production environments.
+  ```bash
+  dotnet run --project src/worldRecipeMvc/worldRecipeMvc.csproj
+  ```
 
-## ?? Sample Data
+  In Development, Swagger is available at `/swagger`.
 
-The application includes pre-populated data:
+  ## Demo Accounts
 
-### Recipes Included:
-1. **Brigadeiro** ???? - Traditional Brazilian chocolate truffle dessert
-2. **Spaghetti Carbonara** ???? - Classic Italian pasta dish
-3. **Chicken Tikka Masala** ???? - Popular Indian curry
-4. **Margherita Pizza** ???? - Traditional Italian pizza
-5. **Classic Pancakes** ?? - American breakfast favorite
-6. **Caesar Salad** ?? - Fresh and crispy salad
+  For testing purposes, the following accounts are seeded:
 
-### Categories:
-- Desserts
-- Main Course
-- Appetizers
-- Soups
-- Salads
-- Breakfast
+  - Regular user: `demo@recipeworld.com` / `Demo123!`
+  - Admin user: `admin@recipeworld.com` / `Admin123!`
 
-## ??? Project Structure
+  Note: change these credentials in production.
 
-```
-worldRecipeMvc/
-??? Areas/
-?   ??? Identity/          # Identity scaffolded pages
-??? Controllers/           # MVC Controllers
-??? Data/                  # Database context and migrations
-?   ??? ApplicationDbContext.cs
-?   ??? SeedData.cs
-?   ??? Migrations/
-??? Models/                # Domain models
-?   ??? Recipe.cs
-?   ??? Ingredient.cs
-?   ??? Category.cs
-?   ??? ViewModels/
-??? Services/              # Business logic layer
-?   ??? RecipeService.cs
-?   ??? IngredientService.cs
-?   ??? CategoryService.cs
-??? Views/                 # Razor views
-?   ??? Home/
-?   ??? Recipes/
-?   ??? Shared/
-??? wwwroot/              # Static files (CSS, JS, images)
-```
+  ## Sample Data
 
-## ?? Key Features for Portfolio
+  Seeded recipes include:
 
-This project demonstrates:
+  1. Brigadeiro - Traditional Brazilian chocolate truffle dessert
+  2. Spaghetti Carbonara - Classic Italian pasta dish
+  3. Chicken Tikka Masala - Popular Indian curry
+  4. Margherita Pizza - Traditional Italian pizza
+  5. Classic Pancakes - American breakfast favorite
+  6. Caesar Salad - Fresh and crispy salad
 
-- ? **Clean Architecture** - Separation of concerns with Services, Controllers, and Models
-- ? **Entity Framework Core** - Code-first approach with migrations
-- ? **Repository Pattern** - Service layer abstraction
-- ? **Authentication & Authorization** - ASP.NET Core Identity implementation
-- ? **CRUD Operations** - Complete create, read, update, delete functionality
-- ? **Async/Await** - Asynchronous programming throughout
-- ? **Dependency Injection** - Built-in DI container usage
-- ? **Error Handling** - Custom middleware and logging
-- ? **API Documentation** - Swagger/OpenAPI integration
-- ? **Responsive Design** - Mobile-first approach
-- ? **Data Validation** - Model validation with data annotations
-- ? **Many-to-Many Relationships** - Recipe-Ingredient relationship
+  ## Project Structure
 
-## ?? Troubleshooting
+  ```
+  RecipeWorld/
+    sql/
+    src/
+      worldRecipeMvc/
+        Areas/
+          Identity/
+        Controllers/
+        Data/
+        Models/
+        Services/
+        Views/
+        wwwroot/
+    img/
+      worldRecipeMvc/wwwroot/images/recipes/
+  ```
 
-### Database Connection Issues
+  ## Troubleshooting
 
-If you encounter database connection errors:
+  ### Database connection errors
 
+  - Ensure your SQL Server instance is running.
+  - Confirm `RecipeWorldConnectionString` points to a reachable SQL Server.
+  - Reset the database (destructive):
+
+  ```bash
+  dotnet ef database drop
+  dotnet ef database update
+  ```
+
+  ### Email confirmation in development
+
+  `RequireConfirmedAccount = true` is enabled. Use the seeded demo accounts, or configure an email sender for registration/confirmation.
+
+  ## Contributing
+
+  This is a portfolio project, but suggestions and feedback are welcome.
+
+  ## Contact
+
+  - GitHub: https://github.com/MatheusFerraro
+  - LinkedIn: https://www.linkedin.com/in/mcamiloferraro/
+  - Email: mailto:matheus.ferraro@gmail.com
 1. Ensure SQL Server is running
+
 2. Verify the connection string in `appsettings.json`
+
 3. Try resetting the database:
-   ```bash
-   dotnet ef database drop
-   dotnet ef database update
-   ```
-
-### Migration Issues
-
-If migrations fail:
-
-```bash
-dotnet ef migrations remove
-dotnet ef migrations add InitialCreate
-dotnet ef database update
-```
-
-
-## ?? Contributing
-
-This is a portfolio project, but suggestions and feedback are welcome! Feel free to open an issue or submit a pull request.
-
-## ?? License
-
-This project is open source and available for educational purposes.
-
-## ?? Author
-
-Created as a portfolio project to demonstrate full-stack web development skills with ASP.NET Core.
-
----
-
-### ?? Contact & Links
-
-- **GitHub**: [[My GitHub Profile](https://github.com/MatheusFerraro)]
-- **LinkedIn**: [My LinkedIn Profile](https://www.linkedin.com/in/mcamiloferraro/)
-- **Email**: [My Email](matheus.ferraro@gmail.com)
-
----
-
-
