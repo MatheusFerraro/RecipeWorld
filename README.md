@@ -8,6 +8,33 @@ This project was built to showcase proficiency in **N-Tier Architecture**, **Sec
 
 ---
 
+## 📸 Screenshots
+
+<p align="center">
+  <img src="assets/HomePage.jpeg" alt="Recipe World - Home page" width="900" />
+</p>
+
+<table>
+  <tr>
+    <td>
+      <img src="assets/RecipePage.jpeg" alt="Recipe details page" width="450" />
+    </td>
+    <td>
+      <img src="assets/CategoriesPage.jpeg" alt="Categories page" width="450" />
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <img src="assets/LoginPage.jpeg" alt="Login page" width="450" />
+    </td>
+    <td>
+      <img src="assets/HomePage.jpeg" alt="Home page (recipes feed)" width="450" />
+    </td>
+  </tr>
+</table>
+
+---
+
 ## 🚀 Why This Project Matters (Technical Highlights)
 
 
