@@ -1,10 +1,18 @@
+using Microsoft.AspNetCore.Mvc;
 using System.Net;
 using System.Text.Json;
 
 namespace worldRecipeMvc.Middleware
 {
+    /// <summary>
+    /// Converts unhandled exceptions on API routes into RFC 7807 ProblemDetails JSON.
+    /// Non-API requests rethrow so the outer exception handler (developer page in
+    /// Development, /Home/Error in Production) can render an HTML error page.
+    /// </summary>
     public class ErrorHandlingMiddleware
     {
+        private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
         private readonly RequestDelegate _next;
         private readonly ILogger<ErrorHandlingMiddleware> _logger;
         private readonly IWebHostEnvironment _env;
@@ -24,27 +32,39 @@ namespace worldRecipeMvc.Middleware
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An unhandled exception occurred");
-                await HandleExceptionAsync(context, ex);
+                _logger.LogError(ex, "An unhandled exception occurred while processing {Method} {Path}",
+                    context.Request.Method, context.Request.Path);
+
+                if (context.Response.HasStarted || !context.Request.Path.StartsWithSegments("/api"))
+                {
+                    // Let the outer exception handler render the HTML error page
+                    throw;
+                }
+
+                await WriteProblemDetailsAsync(context, ex);
             }
         }
 
-        private async Task HandleExceptionAsync(HttpContext context, Exception exception)
+        private async Task WriteProblemDetailsAsync(HttpContext context, Exception exception)
         {
-            context.Response.ContentType = "application/json";
+            context.Response.Clear();
+            context.Response.ContentType = "application/problem+json";
             context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 
-            var response = new
+            var problem = new ProblemDetails
             {
-                StatusCode = context.Response.StatusCode,
-                Message = _env.IsDevelopment() ? exception.Message : "An error occurred while processing your request.",
-                Details = _env.IsDevelopment() ? exception.StackTrace : null
+                Status = context.Response.StatusCode,
+                Title = "An error occurred while processing your request.",
+                Type = "https://tools.ietf.org/html/rfc7231#section-6.6.1",
+                Instance = context.Request.Path
             };
 
-            var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-            var json = JsonSerializer.Serialize(response, options);
+            if (_env.IsDevelopment())
+            {
+                problem.Detail = exception.ToString();
+            }
 
-            await context.Response.WriteAsync(json);
+            await context.Response.WriteAsync(JsonSerializer.Serialize(problem, JsonOptions));
         }
     }
 }

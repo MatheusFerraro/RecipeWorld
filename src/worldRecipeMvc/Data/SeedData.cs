@@ -8,6 +8,18 @@ namespace worldRecipeMvc.Data
     {
         public static async Task Initialize(IServiceProvider serviceProvider, UserManager<RecipeWorldUser> userManager)
         {
+            var options = serviceProvider.GetRequiredService<IConfiguration>()
+                .GetSection(SeedDataOptions.SectionName)
+                .Get<SeedDataOptions>() ?? new SeedDataOptions();
+
+            var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(SeedData));
+
+            if (!options.Enabled)
+            {
+                logger.LogInformation("Sample data seeding is disabled via configuration");
+                return;
+            }
+
             using var context = new ApplicationDbContext(
                 serviceProvider.GetRequiredService<DbContextOptions<ApplicationDbContext>>());
 
@@ -18,7 +30,7 @@ namespace worldRecipeMvc.Data
             }
 
             // Create demo user
-            var demoUser = await CreateDemoUser(userManager);
+            var demoUser = await CreateDemoUser(userManager, options, logger);
 
             // Seed Categories
             var categories = new Category[]
@@ -87,7 +99,7 @@ namespace worldRecipeMvc.Data
                     PrepTime = 5,
                     CookTime = 15,
                     NumberOfServings = 20,
-                    Status = "Public",
+                    Status = RecipeStatus.Public,
                     OwnerID = demoUser?.Id,
                     Temperature = 0,
                     ImageUrl = "https://t3.ftcdn.net/jpg/03/01/55/56/360_F_301555615_PuTf9kLR9GqVKDMs8kVdwyUB4yjOjNIz.jpg",
@@ -111,7 +123,7 @@ namespace worldRecipeMvc.Data
                     PrepTime = 10,
                     CookTime = 20,
                     NumberOfServings = 4,
-                    Status = "Public",
+                    Status = RecipeStatus.Public,
                     OwnerID = demoUser?.Id,
                     Temperature = 0,
                     ImageUrl = "https://images.unsplash.com/photo-1612874742237-6526221588e3?w=500",
@@ -134,7 +146,7 @@ namespace worldRecipeMvc.Data
                     PrepTime = 30,
                     CookTime = 40,
                     NumberOfServings = 6,
-                    Status = "Public",
+                    Status = RecipeStatus.Public,
                     OwnerID = demoUser?.Id,
                     Temperature = 425,
                     ImageUrl = "https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=500",
@@ -159,7 +171,7 @@ namespace worldRecipeMvc.Data
                     PrepTime = 90,
                     CookTime = 12,
                     NumberOfServings = 4,
-                    Status = "Public",
+                    Status = RecipeStatus.Public,
                     OwnerID = demoUser?.Id,
                     Temperature = 475,
                     ImageUrl = "https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=500",
@@ -184,7 +196,7 @@ namespace worldRecipeMvc.Data
                     PrepTime = 10,
                     CookTime = 15,
                     NumberOfServings = 4,
-                    Status = "Public",
+                    Status = RecipeStatus.Public,
                     OwnerID = demoUser?.Id,
                     Temperature = 0,
                     ImageUrl = "/WebsiteImages/Protein-Pancakes.jpg",
@@ -207,7 +219,7 @@ namespace worldRecipeMvc.Data
                     PrepTime = 15,
                     CookTime = 0,
                     NumberOfServings = 4,
-                    Status = "Public",
+                    Status = RecipeStatus.Public,
                     OwnerID = demoUser?.Id,
                     Temperature = 0,
                     ImageUrl = "https://images.unsplash.com/photo-1550304943-4f24f54ddde9?w=500",
@@ -289,49 +301,65 @@ namespace worldRecipeMvc.Data
             await context.SaveChangesAsync();
         }
 
-        private static async Task<RecipeWorldUser?> CreateDemoUser(UserManager<RecipeWorldUser> userManager)
+        private static async Task<RecipeWorldUser?> CreateDemoUser(UserManager<RecipeWorldUser> userManager, SeedDataOptions options, ILogger logger)
         {
             // Create regular demo user
-            const string demoEmail = "demo@recipeworld.com";
-            const string demoPassword = "Demo123!";
-
-            var existingUser = await userManager.FindByEmailAsync(demoEmail);
+            RecipeWorldUser? existingUser = await userManager.FindByEmailAsync(options.DemoEmail);
             if (existingUser == null)
             {
-                var demoUser = new RecipeWorldUser
+                if (string.IsNullOrWhiteSpace(options.DemoPassword))
                 {
-                    UserName = demoEmail,
-                    Email = demoEmail,
-                    EmailConfirmed = true
-                };
+                    logger.LogWarning("SeedData:DemoPassword is not configured; skipping demo user creation");
+                }
+                else
+                {
+                    var demoUser = new RecipeWorldUser
+                    {
+                        UserName = options.DemoEmail,
+                        Email = options.DemoEmail,
+                        EmailConfirmed = true
+                    };
 
-                var result = await userManager.CreateAsync(demoUser, demoPassword);
-                if (result.Succeeded)
-                {
-                    await userManager.AddToRoleAsync(demoUser, "User");
-                    existingUser = demoUser;
+                    var result = await userManager.CreateAsync(demoUser, options.DemoPassword);
+                    if (result.Succeeded)
+                    {
+                        await userManager.AddToRoleAsync(demoUser, Roles.User.ToString());
+                        existingUser = demoUser;
+                    }
+                    else
+                    {
+                        logger.LogWarning("Failed to create demo user: {Errors}", string.Join("; ", result.Errors.Select(e => e.Description)));
+                    }
                 }
             }
 
             // Create admin user
-            const string adminEmail = "admin@recipeworld.com";
-            const string adminPassword = "Admin123!";
-
-            var existingAdmin = await userManager.FindByEmailAsync(adminEmail);
+            var existingAdmin = await userManager.FindByEmailAsync(options.AdminEmail);
             if (existingAdmin == null)
             {
-                var adminUser = new RecipeWorldUser
+                if (string.IsNullOrWhiteSpace(options.AdminPassword))
                 {
-                    UserName = adminEmail,
-                    Email = adminEmail,
-                    EmailConfirmed = true
-                };
+                    logger.LogWarning("SeedData:AdminPassword is not configured; skipping admin user creation");
+                }
+                else
+                {
+                    var adminUser = new RecipeWorldUser
+                    {
+                        UserName = options.AdminEmail,
+                        Email = options.AdminEmail,
+                        EmailConfirmed = true
+                    };
 
-                var adminResult = await userManager.CreateAsync(adminUser, adminPassword);
-                if (adminResult.Succeeded)
-                {
-                    await userManager.AddToRoleAsync(adminUser, "Admin");
-                    await userManager.AddToRoleAsync(adminUser, "Moderator");
+                    var adminResult = await userManager.CreateAsync(adminUser, options.AdminPassword);
+                    if (adminResult.Succeeded)
+                    {
+                        await userManager.AddToRoleAsync(adminUser, Roles.Admin.ToString());
+                        await userManager.AddToRoleAsync(adminUser, Roles.Moderator.ToString());
+                    }
+                    else
+                    {
+                        logger.LogWarning("Failed to create admin user: {Errors}", string.Join("; ", adminResult.Errors.Select(e => e.Description)));
+                    }
                 }
             }
 
