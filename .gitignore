@@ -300,3 +300,20 @@ EmailSettings/
 
 # SQL Queries
 sql/
+
+# Docker environment secrets
+.env
+
+# Machine-local files and secrets (keep out of the public portfolio repo)
+*.local.json
+.env
+.env.*
+!.env.example
+.vscode/
+
+# Local SQLite databases and uploaded content
+*.db
+*.db-shm
+*.db-wal
+data/
+src/worldRecipeMvc/wwwroot/images/recipes/
