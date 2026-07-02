@@ -1,8 +1,6 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using worldRecipeMvc.Data;
 using worldRecipeMvc.DTOs;
+using worldRecipeMvc.Services;
 
 namespace worldRecipeMvc.Controllers.Api
 {
@@ -10,78 +8,43 @@ namespace worldRecipeMvc.Controllers.Api
     [ApiController]
     public class CategoriesApiController : ControllerBase
     {
-        private readonly ApplicationDbContext _context;
-        private readonly ILogger<CategoriesApiController> _logger;
+        private readonly ICategoryService _categoryService;
 
-        public CategoriesApiController(ApplicationDbContext context, ILogger<CategoriesApiController> logger)
+        public CategoriesApiController(ICategoryService categoryService)
         {
-            _context = context;
-            _logger = logger;
+            _categoryService = categoryService;
         }
 
-        /// <summary>
-        /// Get all approved categories
-        /// </summary>
+        /// <summary>Get all approved categories.</summary>
         [HttpGet]
-        [ProducesResponseType(typeof(List<CategoryDto>), 200)]
+        [ProducesResponseType(typeof(List<CategoryDto>), StatusCodes.Status200OK)]
         public async Task<ActionResult<List<CategoryDto>>> GetCategories()
         {
-            try
-            {
-                var categories = await _context.Categories
-                    .Where(c => c.IsApproved == true)
-                    .OrderBy(c => c.CategoryName)
-                    .Select(c => new CategoryDto
-                    {
-                        CategoryID = c.CategoryID,
-                        CategoryName = c.CategoryName,
-                        CategoryDescription = c.CategoryDescription,
-                        IsApproved = c.IsApproved
-                    })
-                    .ToListAsync();
+            var categories = await _categoryService.GetApprovedCategoriesAsync();
 
-                return Ok(categories);
-            }
-            catch (Exception ex)
+            return Ok(categories.Select(c => new CategoryDto
             {
-                _logger.LogError(ex, "Error fetching categories via API");
-                return StatusCode(500, "Internal server error");
-            }
+                CategoryID = c.CategoryID,
+                CategoryName = c.CategoryName,
+                CategoryDescription = c.CategoryDescription,
+                IsApproved = c.IsApproved
+            }).ToList());
         }
 
-        /// <summary>
-        /// Get a specific category by ID
-        /// </summary>
+        /// <summary>Get a specific category by ID.</summary>
         [HttpGet("{id}")]
-        [ProducesResponseType(typeof(CategoryDto), 200)]
-        [ProducesResponseType(404)]
-        public async Task<ActionResult<CategoryDto>> GetCategory(int id)
+        [ProducesResponseType(typeof(CategoryDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult> GetCategory(int id)
         {
-            try
+            var result = await _categoryService.GetCategoryByIdAsync(id);
+            return result.Map(c => new CategoryDto
             {
-                var category = await _context.Categories
-                    .Where(c => c.CategoryID == id)
-                    .Select(c => new CategoryDto
-                    {
-                        CategoryID = c.CategoryID,
-                        CategoryName = c.CategoryName,
-                        CategoryDescription = c.CategoryDescription,
-                        IsApproved = c.IsApproved
-                    })
-                    .FirstOrDefaultAsync();
-
-                if (category == null)
-                {
-                    return NotFound();
-                }
-
-                return Ok(category);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error fetching category {CategoryId} via API", id);
-                return StatusCode(500, "Internal server error");
-            }
+                CategoryID = c.CategoryID,
+                CategoryName = c.CategoryName,
+                CategoryDescription = c.CategoryDescription,
+                IsApproved = c.IsApproved
+            }).ToActionResult(this);
         }
     }
 }

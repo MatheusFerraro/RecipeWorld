@@ -1,145 +1,162 @@
+using FluentResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using worldRecipeMvc.Data;
 using worldRecipeMvc.Models;
+using worldRecipeMvc.Services.Errors;
 
 namespace worldRecipeMvc.Services
 {
     public class CategoryService : ICategoryService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IMemoryCache _cache;
         private readonly ILogger<CategoryService> _logger;
 
-        public CategoryService(ApplicationDbContext context, ILogger<CategoryService> logger)
+        public CategoryService(ApplicationDbContext context, IMemoryCache cache, ILogger<CategoryService> logger)
         {
             _context = context;
+            _cache = cache;
             _logger = logger;
         }
 
-        public async Task<(IEnumerable<Category> Categories, int TotalCount)> GetCategoriesAsync(
-            int pageNumber, int pageSize, string? searchTerm, string? sortOrder)
+        public async Task<Result<PagedResult<Category>>> GetCategoriesAsync(int pageNumber, int pageSize, string? searchTerm, string? sortOrder)
         {
-            try
+            var query = _context.Categories.AsNoTracking().AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
             {
-                var query = _context.Categories.AsQueryable();
-
-                if (!string.IsNullOrWhiteSpace(searchTerm))
-                {
-                    query = query.Where(c => c.CategoryName!.Contains(searchTerm) || 
-                                           c.CategoryDescription!.Contains(searchTerm));
-                }
-
-                switch (sortOrder)
-                {
-                    case "name_desc":
-                        query = query.OrderByDescending(c => c.CategoryName);
-                        break;
-                    default:
-                        query = query.OrderBy(c => c.CategoryName);
-                        break;
-                }
-
-                var totalCount = await query.CountAsync();
-
-                var categories = await query
-                    .Skip((pageNumber - 1) * pageSize)
-                    .Take(pageSize)
-                    .AsNoTracking()
-                    .ToListAsync();
-
-                return (categories, totalCount);
+                query = query.Where(c => c.CategoryName!.Contains(searchTerm) ||
+                                         c.CategoryDescription!.Contains(searchTerm));
             }
-            catch (Exception ex)
+
+            query = sortOrder == "name_desc"
+                ? query.OrderByDescending(c => c.CategoryName)
+                : query.OrderBy(c => c.CategoryName);
+
+            var totalCount = await query.CountAsync();
+
+            var categories = await query
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return Result.Ok(new PagedResult<Category>
             {
-                _logger.LogError(ex, "Error fetching categories with pagination");
-                throw;
-            }
+                Items = categories,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = totalCount
+            });
         }
 
-        public async Task<Category?> GetCategoryByIdAsync(int id)
+        public async Task<Result<Category>> GetCategoryByIdAsync(int id)
         {
-            return await _context.Categories.FindAsync(id);
+            var category = await _context.Categories.FindAsync(id);
+            return category == null
+                ? Result.Fail(new NotFoundError(nameof(Category), id))
+                : Result.Ok(category);
         }
 
-        public async Task<bool> CreateCategoryAsync(Category category)
+        public async Task<Result<Category>> CreateCategoryAsync(Category category, string userId)
         {
-            try
+            if (await CategoryNameExistsAsync(category.CategoryName!))
             {
-                if (await CategoryExistsAsync(category.CategoryName!))
-                {
-                    return false;
-                }
+                return Result.Fail(new ConflictError($"A Category with the name {category.CategoryName} already exists"));
+            }
 
-                category.IsApproved = null;
-                _context.Add(category);
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Category '{CategoryName}' created with ID {CategoryId}", 
-                    category.CategoryName, category.CategoryID);
-                return true;
-            }
-            catch (Exception ex)
+            var newCategory = new Category
             {
-                _logger.LogError(ex, "Error creating category");
-                return false;
-            }
+                CategoryName = category.CategoryName,
+                CategoryDescription = category.CategoryDescription,
+                IsApproved = null,
+                OwnerID = userId
+            };
+
+            _context.Categories.Add(newCategory);
+            await _context.SaveChangesAsync();
+            EvictDropdownCache();
+
+            _logger.LogInformation("Category '{CategoryName}' created with ID {CategoryId} by user {UserId}",
+                newCategory.CategoryName, newCategory.CategoryID, userId);
+            return Result.Ok(newCategory);
         }
 
-        public async Task<bool> UpdateCategoryAsync(Category category)
+        public async Task<Result> UpdateCategoryAsync(int id, Category input, string userId, bool isAdmin)
         {
-            try
+            var existing = await _context.Categories.FindAsync(id);
+            if (existing == null)
             {
-                if (await CategoryExistsAsync(category.CategoryName!, category.CategoryID))
-                {
-                    return false;
-                }
-
-                var existing = await _context.Categories.FindAsync(category.CategoryID);
-                if (existing == null)
-                {
-                    return false;
-                }
-
-                existing.CategoryName = category.CategoryName;
-                existing.CategoryDescription = category.CategoryDescription;
-                existing.IsApproved = null;
-
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Category {CategoryId} '{CategoryName}' updated", 
-                    category.CategoryID, category.CategoryName);
-                return true;
+                return Result.Fail(new NotFoundError(nameof(Category), id));
             }
-            catch (Exception ex)
+
+            if (!CanModify(existing, userId, isAdmin))
             {
-                _logger.LogError(ex, "Error updating category {CategoryId}", category.CategoryID);
-                return false;
+                return Result.Fail(new ForbiddenError("You can only edit your own unapproved categories."));
             }
+
+            if (await CategoryNameExistsAsync(input.CategoryName!, id))
+            {
+                return Result.Fail(new ConflictError($"A Category with the name {input.CategoryName} already exists"));
+            }
+
+            existing.CategoryName = input.CategoryName;
+            existing.CategoryDescription = input.CategoryDescription;
+            // Any edit sends the category back through the approval workflow
+            existing.IsApproved = null;
+
+            await _context.SaveChangesAsync();
+            EvictDropdownCache();
+            _logger.LogInformation("Category {CategoryId} '{CategoryName}' updated", id, existing.CategoryName);
+            return Result.Ok();
         }
 
-        public async Task<bool> DeleteCategoryAsync(int id)
+        public async Task<Result> DeleteCategoryAsync(int id, string userId, bool isAdmin)
         {
-            try
+            var category = await _context.Categories.FindAsync(id);
+            if (category == null)
             {
-                var category = await _context.Categories.FindAsync(id);
-                if (category == null)
-                {
-                    return false;
-                }
+                return Result.Fail(new NotFoundError(nameof(Category), id));
+            }
 
-                _context.Categories.Remove(category);
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Category {CategoryId} deleted successfully", id);
-                return true;
-            }
-            catch (Exception ex)
+            if (!CanModify(category, userId, isAdmin))
             {
-                _logger.LogError(ex, "Error deleting category {CategoryId}", id);
-                return false;
+                return Result.Fail(new ForbiddenError("You can only delete your own unapproved categories."));
             }
+
+            var usedByRecipes = await _context.Recipes.AnyAsync(r => r.CategoryID == id);
+            if (usedByRecipes)
+            {
+                return Result.Fail(new ConflictError($"Cannot delete category '{category.CategoryName}' because it is used by one or more recipes."));
+            }
+
+            _context.Categories.Remove(category);
+            await _context.SaveChangesAsync();
+            EvictDropdownCache();
+            _logger.LogInformation("Category {CategoryId} '{CategoryName}' deleted", id, category.CategoryName);
+            return Result.Ok();
         }
 
-        public async Task<bool> CategoryExistsAsync(string categoryName, int? excludeId = null)
+        public async Task<Result> SetApprovalAsync(int id, bool isApproved)
+        {
+            var category = await _context.Categories.FindAsync(id);
+            if (category == null)
+            {
+                return Result.Fail(new NotFoundError(nameof(Category), id));
+            }
+
+            category.IsApproved = isApproved;
+            await _context.SaveChangesAsync();
+            EvictDropdownCache();
+            _logger.LogInformation("Category {CategoryId} '{CategoryName}' approval set to {IsApproved}",
+                id, category.CategoryName, isApproved);
+            return Result.Ok();
+        }
+
+        public async Task<bool> CategoryNameExistsAsync(string categoryName, int? excludeId = null)
         {
             var query = _context.Categories.Where(c => c.CategoryName!.ToUpper() == categoryName.ToUpper());
-            
+
             if (excludeId.HasValue)
             {
                 query = query.Where(c => c.CategoryID != excludeId);
@@ -148,32 +165,36 @@ namespace worldRecipeMvc.Services
             return await query.AnyAsync();
         }
 
-        public async Task<bool> ApproveCategoryAsync(int id, bool isApproved)
-        {
-            try
-            {
-                var category = await _context.Categories.FindAsync(id);
-                if (category == null)
-                {
-                    return false;
-                }
-
-                category.IsApproved = isApproved;
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Category {CategoryId} '{CategoryName}' approval status set to {IsApproved}", 
-                    id, category.CategoryName, isApproved);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating category {CategoryId} approval status", id);
-                return false;
-            }
-        }
-
         public async Task<List<Category>> GetAllCategoriesAsync()
         {
-            return await _context.Categories.OrderBy(c => c.CategoryName).ToListAsync();
+            return (await _cache.GetOrCreateAsync(CacheKeys.AllCategories, entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = CacheKeys.DropdownTtl;
+                return _context.Categories.AsNoTracking()
+                    .OrderBy(c => c.CategoryName)
+                    .ToListAsync();
+            }))!;
         }
+
+        public async Task<List<Category>> GetApprovedCategoriesAsync()
+        {
+            return (await _cache.GetOrCreateAsync(CacheKeys.ApprovedCategories, entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = CacheKeys.DropdownTtl;
+                return _context.Categories.AsNoTracking()
+                    .Where(c => c.IsApproved == true)
+                    .OrderBy(c => c.CategoryName)
+                    .ToListAsync();
+            }))!;
+        }
+
+        private void EvictDropdownCache()
+        {
+            _cache.Remove(CacheKeys.AllCategories);
+            _cache.Remove(CacheKeys.ApprovedCategories);
+        }
+
+        private static bool CanModify(Category category, string userId, bool isAdmin) =>
+            isAdmin || (category.OwnerID == userId && category.IsApproved != true);
     }
 }

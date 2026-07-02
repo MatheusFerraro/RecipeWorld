@@ -1,196 +1,301 @@
+using FluentResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using worldRecipeMvc.Data;
-using worldRecipeMvc.Models.ViewModels;
+using worldRecipeMvc.DTOs;
 using worldRecipeMvc.Models;
-
+using worldRecipeMvc.Models.ViewModels;
+using worldRecipeMvc.Services.Errors;
 
 namespace worldRecipeMvc.Services
 {
     public class RecipeService : IRecipeService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IMemoryCache _cache;
         private readonly ILogger<RecipeService> _logger;
 
-        public RecipeService(ApplicationDbContext context, ILogger<RecipeService> logger)
+        public RecipeService(ApplicationDbContext context, IMemoryCache cache, ILogger<RecipeService> logger)
         {
             _context = context;
+            _cache = cache;
             _logger = logger;
         }
 
-        public async Task<(IEnumerable<DisplayRecipeViewModel> Recipes, int TotalCount)> GetRecipesAsync(
-            int pageNumber, int pageSize, string? searchTerm, string? categoryFilter, string? statusFilter)
+        public async Task<Result<PagedResult<DisplayRecipeViewModel>>> GetRecipesAsync(
+            int pageNumber, int pageSize, string? searchTerm, int? categoryId,
+            string? statusFilter, string? userId, bool isAdmin)
         {
-            try
+            var query = _context.Recipes.AsNoTracking().AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
             {
-                var query = _context.Recipes.AsQueryable();
-
-                // Apply filters
-                if (!string.IsNullOrWhiteSpace(searchTerm))
-                {
-                    query = query.Where(r => r.RecipeName!.Contains(searchTerm) || 
-                                           r.Instructions!.Contains(searchTerm) || 
-                                           r.Tips!.Contains(searchTerm));
-                }
-
-                if (!string.IsNullOrWhiteSpace(categoryFilter) && int.TryParse(categoryFilter, out int categoryId))
-                {
-                    query = query.Where(r => r.CategoryID == categoryId);
-                }
-
-                if (!string.IsNullOrWhiteSpace(statusFilter))
-                {
-                    query = query.Where(r => r.Status == statusFilter);
-                }
-
-                var totalCount = await query.CountAsync();
-
-                var recipes = await query
-                    .Include(r => r.Category)
-                    .Include(r => r.Owner)
-                    .OrderByDescending(r => r.RecipeID)
-                    .Skip((pageNumber - 1) * pageSize)
-                    .Take(pageSize)
-                    .Select(s => new DisplayRecipeViewModel
-                    {
-                        RecipeID = s.RecipeID,
-                        Category = s.Category,
-                        RecipeName = s.RecipeName,
-                        PrepTime = TimeConversion(s.PrepTime),
-                        CookTime = TimeConversion(s.CookTime),
-                        Tips = s.Tips,
-                        NumberOfServings = s.NumberOfServings,
-                        Status = s.Status,
-                        Owner = s.Owner,
-                        Instructions = s.Instructions,
-                        Temperature = s.Temperature,
-                        ImageUrl = s.ImageUrl
-                    })
-                    .ToListAsync();
-
-                return (recipes, totalCount);
+                query = query.Where(r => r.RecipeName!.Contains(searchTerm));
             }
-            catch (Exception ex)
+
+            if (categoryId.HasValue && categoryId.Value > 0)
             {
-                _logger.LogError(ex, "Error fetching recipes with pagination");
-                throw;
+                query = query.Where(r => r.CategoryID == categoryId.Value);
             }
+
+            if (!string.IsNullOrWhiteSpace(statusFilter))
+            {
+                query = query.Where(r => r.Status == statusFilter);
+            }
+            else if (userId == null)
+            {
+                query = query.Where(r => r.Status == RecipeStatus.Public);
+            }
+            else if (!isAdmin)
+            {
+                query = query.Where(r => r.Status == RecipeStatus.Public || r.OwnerID == userId);
+            }
+
+            var totalCount = await query.CountAsync();
+
+            var recipes = await query
+                .Include(r => r.Category)
+                .Include(r => r.Owner)
+                .OrderByDescending(r => r.RecipeID)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .Select(s => new DisplayRecipeViewModel
+                {
+                    RecipeID = s.RecipeID,
+                    CategoryID = s.CategoryID,
+                    Category = s.Category,
+                    RecipeName = s.RecipeName,
+                    PrepTime = TimeConversion(s.PrepTime),
+                    CookTime = TimeConversion(s.CookTime),
+                    Tips = s.Tips,
+                    NumberOfServings = s.NumberOfServings,
+                    Status = s.Status,
+                    OwnerID = s.OwnerID,
+                    Owner = s.Owner,
+                    Instructions = s.Instructions,
+                    Temperature = s.Temperature,
+                    ImageUrl = s.ImageUrl,
+                    AverageRating = s.Ratings.Any() ? s.Ratings.Average(rt => rt.Stars) : null,
+                    RatingCount = s.Ratings.Count(),
+                    FavoriteCount = s.Favorites.Count(),
+                    IsFavorited = userId != null && s.Favorites.Any(f => f.UserId == userId)
+                })
+                .ToListAsync();
+
+            return Result.Ok(new PagedResult<DisplayRecipeViewModel>
+            {
+                Items = recipes,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = totalCount
+            });
         }
 
-        public async Task<Recipe?> GetRecipeByIdAsync(int id)
+        public async Task<Result<PagedResult<RecipeDto>>> GetPublicRecipesAsync(int pageNumber, int pageSize, string? searchTerm)
         {
-            return await _context.Recipes.FindAsync(id);
+            var query = _context.Recipes.AsNoTracking()
+                .Where(r => r.Status == RecipeStatus.Public);
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                query = query.Where(r => r.RecipeName!.Contains(searchTerm));
+            }
+
+            var totalCount = await query.CountAsync();
+
+            var recipes = await query
+                .OrderByDescending(r => r.RecipeID)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .Select(RecipeDtoProjection)
+                .ToListAsync();
+
+            return Result.Ok(new PagedResult<RecipeDto>
+            {
+                Items = recipes,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = totalCount
+            });
         }
 
-        public async Task<Recipe?> GetRecipeWithDetailsAsync(int id)
+        public async Task<Result<RecipeDto>> GetPublicRecipeAsync(int id)
         {
-            return await _context.Recipes
+            var recipe = await _context.Recipes.AsNoTracking()
+                .Where(r => r.RecipeID == id && r.Status == RecipeStatus.Public)
+                .Select(RecipeDtoProjection)
+                .FirstOrDefaultAsync();
+
+            return recipe == null
+                ? Result.Fail(new NotFoundError(nameof(Recipe), id))
+                : Result.Ok(recipe);
+        }
+
+        public async Task<Result<Recipe>> GetRecipeWithDetailsAsync(int id)
+        {
+            var recipe = await _context.Recipes
                 .Include(r => r.Category)
                 .Include(r => r.Owner)
                 .Include(r => r.RecipeIngredients)
                     .ThenInclude(ri => ri.Ingredient)
                 .FirstOrDefaultAsync(m => m.RecipeID == id);
+
+            return recipe == null
+                ? Result.Fail(new NotFoundError(nameof(Recipe), id))
+                : Result.Ok(recipe);
         }
 
-        public async Task<bool> CreateRecipeAsync(CreateRecipeViewModel viewModel, string userId)
+        public async Task<Result<Recipe>> GetRecipeForViewingAsync(int id, string? userId, bool isAdmin)
         {
-            try
+            var result = await GetRecipeWithDetailsAsync(id);
+            if (result.IsFailed)
             {
-                if (await RecipeExistsAsync(viewModel.Recipe.RecipeName!))
-                {
-                    return false;
-                }
-
-                var recipeToSave = viewModel.Recipe;
-                recipeToSave.Status = "Draft";
-                recipeToSave.ImageUrl = "/websiteImages/RecipeDefaultImage.png";
-                recipeToSave.OwnerID = userId;
-
-                _context.Add(recipeToSave);
-                await _context.SaveChangesAsync();
-
-                var addedIngredientsIds = new HashSet<int>();
-
-                foreach (var ingredient in viewModel.Ingredients)
-                {
-                    if (ingredient.IngredientID.HasValue && ingredient.IngredientID.Value > 0 
-                        && ingredient.Amount.HasValue && ingredient.Amount.Value > 0)
-                    {
-                        int currentIngredientId = ingredient.IngredientID.Value;
-
-                        if (!addedIngredientsIds.Contains(currentIngredientId))
-                        {
-                            ingredient.RecipeID = recipeToSave.RecipeID.Value;
-                            _context.Add(ingredient);
-                            addedIngredientsIds.Add(currentIngredientId);
-                        }
-                    }
-                }
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation("Recipe {RecipeName} created successfully by user {UserId}", recipeToSave.RecipeName, userId);
-                return true;
+                return result;
             }
-            catch (Exception ex)
+
+            var recipe = result.Value;
+            if (recipe.Status == RecipeStatus.Draft || recipe.Status == RecipeStatus.Private)
             {
-                _logger.LogError(ex, "Error creating recipe");
-                return false;
+                if (!(isAdmin || (userId != null && recipe.OwnerID == userId)))
+                {
+                    return Result.Fail(new ForbiddenError("Only the owner or an admin can view this recipe."));
+                }
             }
+
+            return result;
         }
 
-        public async Task<bool> UpdateRecipeAsync(Recipe recipe, List<RecipeIngredient> ingredients)
+        public async Task<Result<Recipe>> CreateRecipeAsync(Recipe recipe, IEnumerable<RecipeIngredient> ingredients, string userId)
         {
-            try
+            if (await RecipeNameExistsAsync(recipe.RecipeName!))
             {
-                _context.Update(recipe);
+                return Result.Fail(new ConflictError($"A Recipe with the name {recipe.RecipeName} already exists"));
+            }
 
-                var existingIngredients = await _context.RecipeIngredients
-                    .Where(ri => ri.RecipeID == recipe.RecipeID)
-                    .ToListAsync();
+            recipe.Status = RecipeStatus.Draft;
+            recipe.OwnerID = userId;
+            if (string.IsNullOrWhiteSpace(recipe.ImageUrl))
+            {
+                recipe.ImageUrl = ImageStorageService.DefaultImageUrl;
+            }
 
-                _context.RecipeIngredients.RemoveRange(existingIngredients);
+            _context.Recipes.Add(recipe);
+            await _context.SaveChangesAsync();
 
-                foreach (var ingredient in ingredients.Where(i => i.IngredientID.HasValue && i.Amount.HasValue))
+            foreach (var ingredient in DeduplicateIngredients(recipe.RecipeID!.Value, ingredients))
+            {
+                _context.RecipeIngredients.Add(ingredient);
+            }
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Recipe {RecipeName} created by user {UserId}", recipe.RecipeName, userId);
+            return Result.Ok(recipe);
+        }
+
+        public async Task<Result> UpdateRecipeAsync(int id, Recipe input, IEnumerable<RecipeIngredient>? ingredients, string userId, bool isAdmin)
+        {
+            var recipe = await _context.Recipes
+                .Include(r => r.RecipeIngredients)
+                    .ThenInclude(ri => ri.Ingredient)
+                .Include(r => r.Category)
+                .FirstOrDefaultAsync(r => r.RecipeID == id);
+
+            if (recipe == null)
+            {
+                return Result.Fail(new NotFoundError(nameof(Recipe), id));
+            }
+
+            bool isOwner = recipe.OwnerID == userId;
+            if (!(isAdmin || isOwner))
+            {
+                return Result.Fail(new ForbiddenError("Only the owner or an admin can edit this recipe."));
+            }
+
+            if (await RecipeNameExistsAsync(input.RecipeName!, id))
+            {
+                return Result.Fail(new ConflictError($"A Recipe with the name {input.RecipeName} already exists"));
+            }
+
+            recipe.RecipeName = input.RecipeName;
+            recipe.CategoryID = input.CategoryID;
+            recipe.PrepTime = input.PrepTime;
+            recipe.CookTime = input.CookTime;
+            recipe.Tips = input.Tips;
+            recipe.NumberOfServings = input.NumberOfServings;
+            recipe.Instructions = input.Instructions;
+            recipe.Temperature = input.Temperature;
+
+            if (!string.IsNullOrWhiteSpace(input.ImageUrl))
+            {
+                recipe.ImageUrl = input.ImageUrl;
+            }
+
+            if (!string.IsNullOrEmpty(input.Status) && input.Status != recipe.Status && CanChangeStatus(recipe, isAdmin, isOwner))
+            {
+                recipe.Status = input.Status;
+            }
+
+            if (ingredients != null)
+            {
+                _context.RecipeIngredients.RemoveRange(recipe.RecipeIngredients);
+                foreach (var ingredient in DeduplicateIngredients(id, ingredients))
                 {
                     _context.RecipeIngredients.Add(ingredient);
                 }
+            }
 
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Recipe {RecipeId} updated successfully", recipe.RecipeID);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating recipe {RecipeId}", recipe.RecipeID);
-                return false;
-            }
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Recipe {RecipeId} updated by user {UserId}", id, userId);
+            return Result.Ok();
         }
 
-        public async Task<bool> DeleteRecipeAsync(int id)
+        public async Task<Result> DeleteRecipeAsync(int id, string userId, bool isAdmin)
         {
-            try
+            var recipe = await _context.Recipes.FindAsync(id);
+            if (recipe == null)
             {
-                var recipe = await _context.Recipes.FindAsync(id);
-                if (recipe == null)
-                {
-                    return false;
-                }
+                return Result.Fail(new NotFoundError(nameof(Recipe), id));
+            }
 
-                _context.Recipes.Remove(recipe);
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Recipe {RecipeId} deleted successfully", id);
-                return true;
-            }
-            catch (Exception ex)
+            if (!(isAdmin || recipe.OwnerID == userId))
             {
-                _logger.LogError(ex, "Error deleting recipe {RecipeId}", id);
-                return false;
+                return Result.Fail(new ForbiddenError("Only the owner or an admin can delete this recipe."));
             }
+
+            _context.Recipes.Remove(recipe);
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Recipe {RecipeId} deleted by user {UserId}", id, userId);
+            return Result.Ok();
         }
 
-        public async Task<bool> RecipeExistsAsync(string recipeName, int? excludeId = null)
+        public async Task<Result> ChangeStatusAsync(int id, string status, string userId, bool isAdmin)
+        {
+            if (!RecipeStatus.All.Contains(status))
+            {
+                return Result.Fail(new ValidationError("Invalid status selection.", nameof(Recipe.Status)));
+            }
+
+            var recipe = await _context.Recipes.FindAsync(id);
+            if (recipe == null)
+            {
+                return Result.Fail(new NotFoundError(nameof(Recipe), id));
+            }
+
+            if (!(isAdmin || recipe.OwnerID == userId))
+            {
+                return Result.Fail(new ForbiddenError("Only the owner or an admin can change this recipe's status."));
+            }
+
+            recipe.Status = status;
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Recipe {RecipeId} status changed to {Status} by user {UserId}", id, status, userId);
+            return Result.Ok();
+        }
+
+        public async Task<bool> RecipeNameExistsAsync(string recipeName, int? excludeId = null)
         {
             var query = _context.Recipes.Where(r => r.RecipeName!.ToUpper() == recipeName.ToUpper());
-            
+
             if (excludeId.HasValue)
             {
                 query = query.Where(r => r.RecipeID != excludeId);
@@ -199,29 +304,106 @@ namespace worldRecipeMvc.Services
             return await query.AnyAsync();
         }
 
-        public async Task<bool> UpdateRecipeStatusAsync(int id, string status)
+        public async Task<HomeTrendingViewModel> GetTrendingAsync(int count = 4)
         {
-            try
+            return (await _cache.GetOrCreateAsync(CacheKeys.HomeTrending, async entry =>
             {
-                var recipe = await _context.Recipes.FindAsync(id);
-                if (recipe == null)
-                {
-                    return false;
-                }
+                entry.AbsoluteExpirationRelativeToNow = CacheKeys.TrendingTtl;
 
-                recipe.Status = status;
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Recipe {RecipeId} status updated to {Status}", id, status);
+                var publicRecipes = _context.Recipes.AsNoTracking()
+                    .Where(r => r.Status == RecipeStatus.Public);
+
+                var topRated = await publicRecipes
+                    .Where(r => r.Ratings.Any())
+                    .OrderByDescending(r => r.Ratings.Average(rt => rt.Stars))
+                    .ThenByDescending(r => r.Ratings.Count())
+                    .Take(count)
+                    .Select(TrendingProjection)
+                    .ToListAsync();
+
+                var mostFavorited = await publicRecipes
+                    .Where(r => r.Favorites.Any())
+                    .OrderByDescending(r => r.Favorites.Count())
+                    .Take(count)
+                    .Select(TrendingProjection)
+                    .ToListAsync();
+
+                return new HomeTrendingViewModel
+                {
+                    TopRated = topRated,
+                    MostFavorited = mostFavorited
+                };
+            }))!;
+        }
+
+        private static readonly System.Linq.Expressions.Expression<Func<Recipe, TrendingRecipeViewModel>> TrendingProjection = r => new TrendingRecipeViewModel
+        {
+            RecipeID = r.RecipeID,
+            RecipeName = r.RecipeName,
+            ImageUrl = r.ImageUrl,
+            CategoryName = r.Category!.CategoryName,
+            AverageRating = r.Ratings.Any() ? r.Ratings.Average(rt => rt.Stars) : null,
+            RatingCount = r.Ratings.Count(),
+            FavoriteCount = r.Favorites.Count()
+        };
+
+        /// <summary>
+        /// Owners may only publish once every linked ingredient and the category
+        /// have been approved; admins always can.
+        /// </summary>
+        private static bool CanChangeStatus(Recipe recipe, bool isAdmin, bool isOwner)
+        {
+            if (isAdmin)
+            {
                 return true;
             }
-            catch (Exception ex)
+
+            if (!isOwner)
             {
-                _logger.LogError(ex, "Error updating recipe {RecipeId} status", id);
                 return false;
+            }
+
+            bool allIngredientsApproved = recipe.RecipeIngredients.All(ri => ri.Ingredient != null && ri.Ingredient.IsApproved == true);
+            bool categoryApproved = recipe.Category == null || recipe.Category.IsApproved == true;
+            return allIngredientsApproved && categoryApproved;
+        }
+
+        private static IEnumerable<RecipeIngredient> DeduplicateIngredients(int recipeId, IEnumerable<RecipeIngredient> ingredients)
+        {
+            var seen = new HashSet<int>();
+            foreach (var ingredient in ingredients)
+            {
+                if (ingredient.IngredientID is > 0 && ingredient.Amount is > 0 && seen.Add(ingredient.IngredientID.Value))
+                {
+                    yield return new RecipeIngredient
+                    {
+                        RecipeID = recipeId,
+                        IngredientID = ingredient.IngredientID,
+                        Amount = ingredient.Amount,
+                        Unit = ingredient.Unit
+                    };
+                }
             }
         }
 
-        private static string? TimeConversion(int? time)
+        private static readonly System.Linq.Expressions.Expression<Func<Recipe, RecipeDto>> RecipeDtoProjection = r => new RecipeDto
+        {
+            RecipeID = r.RecipeID,
+            RecipeName = r.RecipeName,
+            CategoryID = r.CategoryID,
+            CategoryName = r.Category!.CategoryName,
+            PrepTime = r.PrepTime,
+            CookTime = r.CookTime,
+            Tips = r.Tips,
+            NumberOfServings = r.NumberOfServings,
+            Status = r.Status,
+            Instructions = r.Instructions,
+            ImageUrl = r.ImageUrl,
+            Temperature = r.Temperature,
+            OwnerName = r.Owner!.UserName
+        };
+
+        public static string? TimeConversion(int? time)
         {
             if (!time.HasValue) return null;
 

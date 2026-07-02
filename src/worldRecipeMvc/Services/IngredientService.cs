@@ -1,136 +1,166 @@
+using FluentResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using worldRecipeMvc.Data;
 using worldRecipeMvc.Models;
+using worldRecipeMvc.Services.Errors;
 
 namespace worldRecipeMvc.Services
 {
     public class IngredientService : IIngredientService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IMemoryCache _cache;
         private readonly ILogger<IngredientService> _logger;
 
-        public IngredientService(ApplicationDbContext context, ILogger<IngredientService> logger)
+        public IngredientService(ApplicationDbContext context, IMemoryCache cache, ILogger<IngredientService> logger)
         {
             _context = context;
+            _cache = cache;
             _logger = logger;
         }
 
-        public async Task<(IEnumerable<Ingredient> Ingredients, int TotalCount)> GetIngredientsAsync(
-            int pageNumber, int pageSize, string? searchTerm)
+        public async Task<Result<PagedResult<Ingredient>>> GetIngredientsAsync(int pageNumber, int pageSize, string? searchTerm, bool approvedOnly = false)
         {
-            try
+            var query = _context.Ingredients.AsNoTracking().AsQueryable();
+
+            if (approvedOnly)
             {
-                var query = _context.Ingredients.AsQueryable();
-
-                if (!string.IsNullOrWhiteSpace(searchTerm))
-                {
-                    query = query.Where(i => i.IngredientName!.Contains(searchTerm) || 
-                                           i.IngredientType!.Contains(searchTerm));
-                }
-
-                var totalCount = await query.CountAsync();
-
-                var ingredients = await query
-                    .OrderBy(i => i.IngredientName)
-                    .Skip((pageNumber - 1) * pageSize)
-                    .Take(pageSize)
-                    .ToListAsync();
-
-                return (ingredients, totalCount);
+                query = query.Where(i => i.IsApproved == true);
             }
-            catch (Exception ex)
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
             {
-                _logger.LogError(ex, "Error fetching ingredients with pagination");
-                throw;
+                query = query.Where(i => i.IngredientName!.Contains(searchTerm) ||
+                                         i.IngredientType!.Contains(searchTerm));
             }
+
+            var totalCount = await query.CountAsync();
+
+            var ingredients = await query
+                .OrderBy(i => i.IngredientName)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return Result.Ok(new PagedResult<Ingredient>
+            {
+                Items = ingredients,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = totalCount
+            });
         }
 
-        public async Task<Ingredient?> GetIngredientByIdAsync(int id)
+        public async Task<Result<Ingredient>> GetIngredientByIdAsync(int id)
         {
-            return await _context.Ingredients.FindAsync(id);
+            var ingredient = await _context.Ingredients.FindAsync(id);
+            return ingredient == null
+                ? Result.Fail(new NotFoundError(nameof(Ingredient), id))
+                : Result.Ok(ingredient);
         }
 
-        public async Task<bool> CreateIngredientAsync(Ingredient ingredient)
+        public async Task<Result<Ingredient>> CreateIngredientAsync(Ingredient ingredient, string userId)
         {
-            try
+            if (await IngredientNameExistsAsync(ingredient.IngredientName!))
             {
-                if (await IngredientExistsAsync(ingredient.IngredientName!))
-                {
-                    return false;
-                }
+                return Result.Fail(new ConflictError($"An Ingredient with the name {ingredient.IngredientName} already exists"));
+            }
 
-                ingredient.IsApproved = null;
-                _context.Add(ingredient);
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Ingredient '{IngredientName}' created with ID {IngredientId}", 
-                    ingredient.IngredientName, ingredient.IngredientID);
-                return true;
-            }
-            catch (Exception ex)
+            var newIngredient = new Ingredient
             {
-                _logger.LogError(ex, "Error creating ingredient");
-                return false;
-            }
+                IngredientName = ingredient.IngredientName,
+                IngredientType = ingredient.IngredientType,
+                IngredientDetails = ingredient.IngredientDetails,
+                IsApproved = null,
+                OwnerID = userId
+            };
+
+            _context.Ingredients.Add(newIngredient);
+            await _context.SaveChangesAsync();
+            _cache.Remove(CacheKeys.AllIngredients);
+
+            _logger.LogInformation("Ingredient '{IngredientName}' created with ID {IngredientId} by user {UserId}",
+                newIngredient.IngredientName, newIngredient.IngredientID, userId);
+            return Result.Ok(newIngredient);
         }
 
-        public async Task<bool> UpdateIngredientAsync(Ingredient ingredient)
+        public async Task<Result> UpdateIngredientAsync(int id, Ingredient input, string userId, bool isAdmin)
         {
-            try
+            var existing = await _context.Ingredients.FindAsync(id);
+            if (existing == null)
             {
-                if (await IngredientExistsAsync(ingredient.IngredientName!, ingredient.IngredientID))
-                {
-                    return false;
-                }
-
-                var existing = await _context.Ingredients.FindAsync(ingredient.IngredientID);
-                if (existing == null)
-                {
-                    return false;
-                }
-
-                existing.IngredientName = ingredient.IngredientName;
-                existing.IngredientType = ingredient.IngredientType;
-                existing.IngredientDetails = ingredient.IngredientDetails;
-                existing.IsApproved = null;
-
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Ingredient {IngredientId} '{IngredientName}' updated", 
-                    ingredient.IngredientID, ingredient.IngredientName);
-                return true;
+                return Result.Fail(new NotFoundError(nameof(Ingredient), id));
             }
-            catch (Exception ex)
+
+            if (!CanModify(existing, userId, isAdmin))
             {
-                _logger.LogError(ex, "Error updating ingredient {IngredientId}", ingredient.IngredientID);
-                return false;
+                return Result.Fail(new ForbiddenError("You can only edit your own unapproved ingredients."));
             }
+
+            if (await IngredientNameExistsAsync(input.IngredientName!, id))
+            {
+                return Result.Fail(new ConflictError($"An Ingredient with the name {input.IngredientName} already exists"));
+            }
+
+            existing.IngredientName = input.IngredientName;
+            existing.IngredientType = input.IngredientType;
+            existing.IngredientDetails = input.IngredientDetails;
+            // Any edit sends the ingredient back through the approval workflow
+            existing.IsApproved = null;
+
+            await _context.SaveChangesAsync();
+            _cache.Remove(CacheKeys.AllIngredients);
+            _logger.LogInformation("Ingredient {IngredientId} '{IngredientName}' updated", id, existing.IngredientName);
+            return Result.Ok();
         }
 
-        public async Task<bool> DeleteIngredientAsync(int id)
+        public async Task<Result> DeleteIngredientAsync(int id, string userId, bool isAdmin)
         {
-            try
+            var ingredient = await _context.Ingredients.FindAsync(id);
+            if (ingredient == null)
             {
-                var ingredient = await _context.Ingredients.FindAsync(id);
-                if (ingredient == null)
-                {
-                    return false;
-                }
+                return Result.Fail(new NotFoundError(nameof(Ingredient), id));
+            }
 
-                _context.Ingredients.Remove(ingredient);
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Ingredient {IngredientId} deleted successfully", id);
-                return true;
-            }
-            catch (Exception ex)
+            if (!CanModify(ingredient, userId, isAdmin))
             {
-                _logger.LogError(ex, "Error deleting ingredient {IngredientId}", id);
-                return false;
+                return Result.Fail(new ForbiddenError("You can only delete your own unapproved ingredients."));
             }
+
+            var usedByRecipes = await _context.RecipeIngredients.AnyAsync(ri => ri.IngredientID == id);
+            if (usedByRecipes)
+            {
+                return Result.Fail(new ConflictError($"Cannot delete ingredient '{ingredient.IngredientName}' because it is used by one or more recipes."));
+            }
+
+            _context.Ingredients.Remove(ingredient);
+            await _context.SaveChangesAsync();
+            _cache.Remove(CacheKeys.AllIngredients);
+            _logger.LogInformation("Ingredient {IngredientId} '{IngredientName}' deleted", id, ingredient.IngredientName);
+            return Result.Ok();
         }
 
-        public async Task<bool> IngredientExistsAsync(string ingredientName, int? excludeId = null)
+        public async Task<Result> SetApprovalAsync(int id, bool isApproved)
+        {
+            var ingredient = await _context.Ingredients.FindAsync(id);
+            if (ingredient == null)
+            {
+                return Result.Fail(new NotFoundError(nameof(Ingredient), id));
+            }
+
+            ingredient.IsApproved = isApproved;
+            await _context.SaveChangesAsync();
+            _cache.Remove(CacheKeys.AllIngredients);
+            _logger.LogInformation("Ingredient {IngredientId} '{IngredientName}' approval set to {IsApproved}",
+                id, ingredient.IngredientName, isApproved);
+            return Result.Ok();
+        }
+
+        public async Task<bool> IngredientNameExistsAsync(string ingredientName, int? excludeId = null)
         {
             var query = _context.Ingredients.Where(i => i.IngredientName!.ToUpper() == ingredientName.ToUpper());
-            
+
             if (excludeId.HasValue)
             {
                 query = query.Where(i => i.IngredientID != excludeId);
@@ -139,27 +169,18 @@ namespace worldRecipeMvc.Services
             return await query.AnyAsync();
         }
 
-        public async Task<bool> ApproveIngredientAsync(int id, bool isApproved)
+        public async Task<List<Ingredient>> GetAllIngredientsAsync()
         {
-            try
+            return (await _cache.GetOrCreateAsync(CacheKeys.AllIngredients, entry =>
             {
-                var ingredient = await _context.Ingredients.FindAsync(id);
-                if (ingredient == null)
-                {
-                    return false;
-                }
-
-                ingredient.IsApproved = isApproved;
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Ingredient {IngredientId} '{IngredientName}' approval status set to {IsApproved}", 
-                    id, ingredient.IngredientName, isApproved);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating ingredient {IngredientId} approval status", id);
-                return false;
-            }
+                entry.AbsoluteExpirationRelativeToNow = CacheKeys.DropdownTtl;
+                return _context.Ingredients.AsNoTracking()
+                    .OrderBy(i => i.IngredientName)
+                    .ToListAsync();
+            }))!;
         }
+
+        private static bool CanModify(Ingredient ingredient, string userId, bool isAdmin) =>
+            isAdmin || (ingredient.OwnerID == userId && ingredient.IsApproved != true);
     }
 }

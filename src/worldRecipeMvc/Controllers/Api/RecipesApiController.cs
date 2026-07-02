@@ -1,9 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using worldRecipeMvc.Data;
 using worldRecipeMvc.DTOs;
 using worldRecipeMvc.Models;
+using worldRecipeMvc.Services;
 using System.Security.Claims;
 
 namespace worldRecipeMvc.Controllers.Api
@@ -12,297 +11,206 @@ namespace worldRecipeMvc.Controllers.Api
     [ApiController]
     public class RecipesApiController : ControllerBase
     {
-        private readonly ApplicationDbContext _context;
-        private readonly ILogger<RecipesApiController> _logger;
+        private readonly IRecipeService _recipeService;
+        private readonly IRatingService _ratingService;
+        private readonly IFavoriteService _favoriteService;
 
-        public RecipesApiController(ApplicationDbContext context, ILogger<RecipesApiController> logger)
+        public RecipesApiController(IRecipeService recipeService, IRatingService ratingService, IFavoriteService favoriteService)
         {
-            _context = context;
-            _logger = logger;
+            _recipeService = recipeService;
+            _ratingService = ratingService;
+            _favoriteService = favoriteService;
         }
 
-        /// <summary>
-        /// Get all recipes with pagination
-        /// </summary>
-        /// <param name="pageNumber">Page number (default: 1)</param>
-        /// <param name="pageSize">Page size (default: 10)</param>
-        /// <param name="search">Search term for recipe name</param>
-        /// <returns>Paginated list of recipes</returns>
+        /// <summary>Get public recipes with pagination and optional name search.</summary>
         [HttpGet]
-        [ProducesResponseType(typeof(PaginatedResponse<RecipeDto>), 200)]
-        public async Task<ActionResult<PaginatedResponse<RecipeDto>>> GetRecipes(
+        [ProducesResponseType(typeof(PagedResult<RecipeDto>), StatusCodes.Status200OK)]
+        public async Task<ActionResult> GetRecipes(
             [FromQuery] int pageNumber = 1,
             [FromQuery] int pageSize = 10,
             [FromQuery] string? search = null)
         {
-            try
-            {
-                var query = _context.Recipes
-                    .Include(r => r.Category)
-                    .Include(r => r.Owner)
-                    .Where(r => r.Status == "Published")
-                    .AsQueryable();
+            pageNumber = Math.Max(1, pageNumber);
+            pageSize = Math.Clamp(pageSize, 1, 100);
 
-                if (!string.IsNullOrWhiteSpace(search))
-                {
-                    query = query.Where(r => r.RecipeName!.Contains(search));
-                }
-
-                var totalCount = await query.CountAsync();
-
-                var recipes = await query
-                    .OrderByDescending(r => r.RecipeID)
-                    .Skip((pageNumber - 1) * pageSize)
-                    .Take(pageSize)
-                    .Select(r => new RecipeDto
-                    {
-                        RecipeID = r.RecipeID,
-                        RecipeName = r.RecipeName,
-                        CategoryID = r.CategoryID,
-                        CategoryName = r.Category!.CategoryName,
-                        PrepTime = r.PrepTime,
-                        CookTime = r.CookTime,
-                        Tips = r.Tips,
-                        NumberOfServings = r.NumberOfServings,
-                        Status = r.Status,
-                        Instructions = r.Instructions,
-                        ImageUrl = r.ImageUrl,
-                        Temperature = r.Temperature,
-                        OwnerName = r.Owner!.UserName
-                    })
-                    .ToListAsync();
-
-                var response = new PaginatedResponse<RecipeDto>
-                {
-                    Data = recipes,
-                    PageNumber = pageNumber,
-                    PageSize = pageSize,
-                    TotalCount = totalCount
-                };
-
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error fetching recipes via API");
-                return StatusCode(500, "Internal server error");
-            }
+            var result = await _recipeService.GetPublicRecipesAsync(pageNumber, pageSize, search);
+            return result.ToActionResult(this);
         }
 
-        /// <summary>
-        /// Get a specific recipe by ID
-        /// </summary>
-        /// <param name="id">Recipe ID</param>
-        /// <returns>Recipe details</returns>
+        /// <summary>Get a specific public recipe by ID.</summary>
         [HttpGet("{id}")]
-        [ProducesResponseType(typeof(RecipeDto), 200)]
-        [ProducesResponseType(404)]
-        public async Task<ActionResult<RecipeDto>> GetRecipe(int id)
+        [ProducesResponseType(typeof(RecipeDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult> GetRecipe(int id)
         {
-            try
-            {
-                var recipe = await _context.Recipes
-                    .Include(r => r.Category)
-                    .Include(r => r.Owner)
-                    .Where(r => r.RecipeID == id && r.Status == "Published")
-                    .Select(r => new RecipeDto
-                    {
-                        RecipeID = r.RecipeID,
-                        RecipeName = r.RecipeName,
-                        CategoryID = r.CategoryID,
-                        CategoryName = r.Category!.CategoryName,
-                        PrepTime = r.PrepTime,
-                        CookTime = r.CookTime,
-                        Tips = r.Tips,
-                        NumberOfServings = r.NumberOfServings,
-                        Status = r.Status,
-                        Instructions = r.Instructions,
-                        ImageUrl = r.ImageUrl,
-                        Temperature = r.Temperature,
-                        OwnerName = r.Owner!.UserName
-                    })
-                    .FirstOrDefaultAsync();
-
-                if (recipe == null)
-                {
-                    return NotFound();
-                }
-
-                return Ok(recipe);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error fetching recipe {RecipeId} via API", id);
-                return StatusCode(500, "Internal server error");
-            }
+            var result = await _recipeService.GetPublicRecipeAsync(id);
+            return result.ToActionResult(this);
         }
 
-        /// <summary>
-        /// Create a new recipe
-        /// </summary>
-        /// <param name="recipeDto">Recipe data</param>
-        /// <returns>Created recipe</returns>
+        /// <summary>Create a new recipe (created as Draft, owned by the caller).</summary>
         [HttpPost]
-        [Authorize]
-        [ProducesResponseType(typeof(RecipeDto), 201)]
-        [ProducesResponseType(400)]
-        public async Task<ActionResult<RecipeDto>> CreateRecipe([FromBody] CreateRecipeDto recipeDto)
+        [ApiAuthorize]
+        [ProducesResponseType(typeof(RecipeDto), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<ActionResult> CreateRecipe([FromBody] CreateRecipeDto recipeDto)
         {
-            try
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+            var recipe = new Recipe
             {
-                if (!ModelState.IsValid)
-                {
-                    return BadRequest(ModelState);
-                }
+                RecipeName = recipeDto.RecipeName,
+                CategoryID = recipeDto.CategoryID,
+                PrepTime = recipeDto.PrepTime,
+                CookTime = recipeDto.CookTime,
+                Tips = recipeDto.Tips,
+                NumberOfServings = recipeDto.NumberOfServings,
+                Instructions = recipeDto.Instructions,
+                Temperature = recipeDto.Temperature
+            };
 
-                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-                var recipe = new Recipe
-                {
-                    RecipeName = recipeDto.RecipeName,
-                    CategoryID = recipeDto.CategoryID,
-                    PrepTime = recipeDto.PrepTime,
-                    CookTime = recipeDto.CookTime,
-                    Tips = recipeDto.Tips,
-                    NumberOfServings = recipeDto.NumberOfServings,
-                    Instructions = recipeDto.Instructions,
-                    Temperature = recipeDto.Temperature,
-                    Status = "Draft",
-                    OwnerID = userId,
-                    ImageUrl = "/websiteImages/RecipeDefaultImage.png"
-                };
-
-                _context.Recipes.Add(recipe);
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation("Recipe created via API: {RecipeName}", recipe.RecipeName);
-
-                var createdRecipe = await _context.Recipes
-                    .Include(r => r.Category)
-                    .Include(r => r.Owner)
-                    .Where(r => r.RecipeID == recipe.RecipeID)
-                    .Select(r => new RecipeDto
-                    {
-                        RecipeID = r.RecipeID,
-                        RecipeName = r.RecipeName,
-                        CategoryID = r.CategoryID,
-                        CategoryName = r.Category!.CategoryName,
-                        PrepTime = r.PrepTime,
-                        CookTime = r.CookTime,
-                        Tips = r.Tips,
-                        NumberOfServings = r.NumberOfServings,
-                        Status = r.Status,
-                        Instructions = r.Instructions,
-                        ImageUrl = r.ImageUrl,
-                        Temperature = r.Temperature,
-                        OwnerName = r.Owner!.UserName
-                    })
-                    .FirstOrDefaultAsync();
-
-                return CreatedAtAction(nameof(GetRecipe), new { id = recipe.RecipeID }, createdRecipe);
-            }
-            catch (Exception ex)
+            var result = await _recipeService.CreateRecipeAsync(recipe, Enumerable.Empty<RecipeIngredient>(), userId);
+            if (result.IsFailed)
             {
-                _logger.LogError(ex, "Error creating recipe via API");
-                return StatusCode(500, "Internal server error");
+                return result.ToResult().ToActionResult(this);
             }
+
+            var created = result.Value;
+            var dto = new RecipeDto
+            {
+                RecipeID = created.RecipeID,
+                RecipeName = created.RecipeName,
+                CategoryID = created.CategoryID,
+                PrepTime = created.PrepTime,
+                CookTime = created.CookTime,
+                Tips = created.Tips,
+                NumberOfServings = created.NumberOfServings,
+                Status = created.Status,
+                Instructions = created.Instructions,
+                ImageUrl = created.ImageUrl,
+                Temperature = created.Temperature
+            };
+
+            return CreatedAtAction(nameof(GetRecipe), new { id = created.RecipeID }, dto);
         }
 
-        /// <summary>
-        /// Update an existing recipe
-        /// </summary>
-        /// <param name="id">Recipe ID</param>
-        /// <param name="recipeDto">Updated recipe data</param>
-        /// <returns>No content</returns>
+        /// <summary>Update an existing recipe (owner or admin).</summary>
         [HttpPut("{id}")]
-        [Authorize]
-        [ProducesResponseType(204)]
-        [ProducesResponseType(400)]
-        [ProducesResponseType(404)]
-        public async Task<IActionResult> UpdateRecipe(int id, [FromBody] UpdateRecipeDto recipeDto)
+        [ApiAuthorize]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<ActionResult> UpdateRecipe(int id, [FromBody] UpdateRecipeDto recipeDto)
         {
-            try
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+            var isAdmin = User.IsInRole("Admin");
+
+            var input = new Recipe
             {
-                var recipe = await _context.Recipes.FindAsync(id);
-                if (recipe == null)
-                {
-                    return NotFound();
-                }
+                RecipeName = recipeDto.RecipeName,
+                CategoryID = recipeDto.CategoryID,
+                PrepTime = recipeDto.PrepTime,
+                CookTime = recipeDto.CookTime,
+                Tips = recipeDto.Tips,
+                NumberOfServings = recipeDto.NumberOfServings,
+                Instructions = recipeDto.Instructions,
+                Temperature = recipeDto.Temperature,
+                Status = recipeDto.Status
+            };
 
-                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                var isAdmin = User.IsInRole("Admin");
-
-                if (recipe.OwnerID != userId && !isAdmin)
-                {
-                    return Forbid();
-                }
-
-                recipe.RecipeName = recipeDto.RecipeName;
-                recipe.CategoryID = recipeDto.CategoryID;
-                recipe.PrepTime = recipeDto.PrepTime;
-                recipe.CookTime = recipeDto.CookTime;
-                recipe.Tips = recipeDto.Tips;
-                recipe.NumberOfServings = recipeDto.NumberOfServings;
-                recipe.Instructions = recipeDto.Instructions;
-                recipe.Temperature = recipeDto.Temperature;
-
-                if (isAdmin && !string.IsNullOrEmpty(recipeDto.Status))
-                {
-                    recipe.Status = recipeDto.Status;
-                }
-
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation("Recipe {RecipeId} updated via API", id);
-
-                return NoContent();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating recipe {RecipeId} via API", id);
-                return StatusCode(500, "Internal server error");
-            }
+            var result = await _recipeService.UpdateRecipeAsync(id, input, ingredients: null, userId, isAdmin);
+            return result.ToActionResult(this);
         }
 
-        /// <summary>
-        /// Delete a recipe
-        /// </summary>
-        /// <param name="id">Recipe ID</param>
-        /// <returns>No content</returns>
+        /// <summary>Delete a recipe (owner or admin).</summary>
         [HttpDelete("{id}")]
-        [Authorize]
-        [ProducesResponseType(204)]
-        [ProducesResponseType(404)]
-        public async Task<IActionResult> DeleteRecipe(int id)
+        [ApiAuthorize]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult> DeleteRecipe(int id)
         {
-            try
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+            var isAdmin = User.IsInRole("Admin");
+
+            var result = await _recipeService.DeleteRecipeAsync(id, userId, isAdmin);
+            return result.ToActionResult(this);
+        }
+
+        /// <summary>Get a recipe's reviews (paged, newest first).</summary>
+        [HttpGet("{id}/ratings")]
+        [ProducesResponseType(typeof(PagedResult<RatingDto>), StatusCodes.Status200OK)]
+        public async Task<ActionResult> GetRatings(int id, [FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
+        {
+            pageNumber = Math.Max(1, pageNumber);
+            pageSize = Math.Clamp(pageSize, 1, 100);
+
+            var result = await _ratingService.GetReviewsAsync(id, pageNumber, pageSize);
+            return result.Map(page => new PagedResult<RatingDto>
             {
-                var recipe = await _context.Recipes.FindAsync(id);
-                if (recipe == null)
+                Items = page.Items.Select(r => new RatingDto
                 {
-                    return NotFound();
-                }
+                    RecipeID = r.RecipeID,
+                    Stars = r.Stars,
+                    Comment = r.Comment,
+                    ReviewerName = r.User?.FullName ?? r.User?.UserName,
+                    CreatedAtUtc = r.CreatedAtUtc
+                }).ToList(),
+                PageNumber = page.PageNumber,
+                PageSize = page.PageSize,
+                TotalCount = page.TotalCount
+            }).ToActionResult(this);
+        }
 
-                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                var isAdmin = User.IsInRole("Admin");
+        /// <summary>Rate a recipe 1-5 stars with an optional comment (one rating per user).</summary>
+        [HttpPost("{id}/ratings")]
+        [ApiAuthorize]
+        [ProducesResponseType(typeof(RatingSummaryDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult> RateRecipe(int id, [FromBody] CreateRatingDto ratingDto)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
-                if (recipe.OwnerID != userId && !isAdmin)
-                {
-                    return Forbid();
-                }
-
-                _context.Recipes.Remove(recipe);
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation("Recipe {RecipeId} deleted via API", id);
-
-                return NoContent();
-            }
-            catch (Exception ex)
+            var result = await _ratingService.UpsertAsync(id, userId, ratingDto.Stars, ratingDto.Comment);
+            if (result.IsFailed)
             {
-                _logger.LogError(ex, "Error deleting recipe {RecipeId} via API", id);
-                return StatusCode(500, "Internal server error");
+                return result.ToResult().ToActionResult(this);
             }
+
+            var summary = await _ratingService.GetSummaryAsync(id, userId);
+            return Ok(new RatingSummaryDto
+            {
+                RecipeID = id,
+                AverageStars = summary.AverageStars,
+                Count = summary.Count,
+                YourStars = summary.CurrentUserRating?.Stars
+            });
+        }
+
+        /// <summary>Toggle the recipe in the caller's favorites; returns the new state.</summary>
+        [HttpPost("{id}/favorite")]
+        [ApiAuthorize]
+        [ProducesResponseType(typeof(FavoriteStatusDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult> ToggleFavorite(int id)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+            var result = await _favoriteService.ToggleAsync(id, userId);
+            if (result.IsFailed)
+            {
+                return result.ToResult().ToActionResult(this);
+            }
+
+            var info = await _favoriteService.GetInfoAsync(id, userId);
+            return Ok(new FavoriteStatusDto
+            {
+                RecipeID = id,
+                IsFavorited = result.Value,
+                FavoriteCount = info.Count
+            });
         }
     }
 }

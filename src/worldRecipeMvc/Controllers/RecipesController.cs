@@ -1,115 +1,63 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using Microsoft.EntityFrameworkCore;
-using worldRecipeMvc.Data;
 using worldRecipeMvc.Models;
 using worldRecipeMvc.Models.ViewModels;
+using worldRecipeMvc.Services;
+using worldRecipeMvc.Services.Errors;
 using System.Numerics;
 using System.Security.Claims;
 
 namespace worldRecipeMvc.Controllers
 {
-    
     public class RecipesController : Controller
     {
-
-        
-        private readonly ApplicationDbContext _context;
-        private readonly IWebHostEnvironment _environment;
+        private readonly IRecipeService _recipeService;
+        private readonly ICategoryService _categoryService;
+        private readonly IIngredientService _ingredientService;
+        private readonly IImageStorageService _imageStorage;
+        private readonly IRatingService _ratingService;
+        private readonly IFavoriteService _favoriteService;
         private readonly ILogger<RecipesController> _logger;
-        private readonly IConfiguration _configuration;
 
-        public RecipesController(ApplicationDbContext context, IWebHostEnvironment environment, ILogger<RecipesController> logger, IConfiguration configuration)
+        public RecipesController(
+            IRecipeService recipeService,
+            ICategoryService categoryService,
+            IIngredientService ingredientService,
+            IImageStorageService imageStorage,
+            IRatingService ratingService,
+            IFavoriteService favoriteService,
+            ILogger<RecipesController> logger)
         {
-            _context = context;
-            _environment = environment;
+            _recipeService = recipeService;
+            _categoryService = categoryService;
+            _ingredientService = ingredientService;
+            _imageStorage = imageStorage;
+            _ratingService = ratingService;
+            _favoriteService = favoriteService;
             _logger = logger;
-            _configuration = configuration;
         }
+
+        private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
+        private bool IsAdmin => User.IsInRole("Admin");
 
         // GET: Recipes
         [AllowAnonymous]
         public async Task<IActionResult> Index(int pageNumber = 1, int pageSize = 12, string? searchTerm = null, int? categoryFilter = null, string? statusFilter = null)
         {
-            _logger.LogInformation("Fetching recipes - Page: {PageNumber}, Search: {SearchTerm}", pageNumber, searchTerm);
-            
-            var query = _context.Recipes
-                .Include(r => r.Category)
-                .Include(r => r.Owner)
-                .AsQueryable();
-
-            
-            if (!string.IsNullOrWhiteSpace(searchTerm))
-            {
-                query = query.Where(r => r.RecipeName!.Contains(searchTerm));
-            }
-
-            
-            if (categoryFilter.HasValue && categoryFilter.Value > 0)
-            {
-                query = query.Where(r => r.CategoryID == categoryFilter.Value);
-            }
-
-            // Apply status filter
-            if (!string.IsNullOrWhiteSpace(statusFilter))
-            {
-                query = query.Where(r => r.Status == statusFilter);
-            }
-            else
-            {
-                // Default: show only published recipes for non-authenticated users
-                if (!User.Identity.IsAuthenticated)
-                {
-                    query = query.Where(r => r.Status == "Public");
-                }
-                else if (!User.IsInRole("Admin"))
-                {
-                    // For authenticated users (non-admin), show their own recipes + published recipes
-                    var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                    query = query.Where(r => r.Status == "Public" || r.OwnerID == userId);
-                }
-            }
-
-            var totalCount = await query.CountAsync();
-
-            var recipes = await query
-                .OrderByDescending(r => r.RecipeID)
-                .Skip((pageNumber - 1) * pageSize)
-                .Take(pageSize)
-                .Select(s => new DisplayRecipeViewModel
-                {
-                    RecipeID = s.RecipeID,
-                    Category = s.Category,
-                    RecipeName = s.RecipeName,
-                    PrepTime = TimeConversion(s.PrepTime),
-                    CookTime = TimeConversion(s.CookTime),
-                    Tips = s.Tips,
-                    NumberOfServings = s.NumberOfServings,
-                    Status = s.Status,
-                    Owner = s.Owner,
-                    Instructions = s.Instructions,
-                    Temperature = s.Temperature,
-                    ImageUrl = s.ImageUrl
-                })
-                .ToListAsync();
-
-            // Get categories for filter dropdown
-            var categories = await _context.Categories
-                .Where(c => c.IsApproved == true)
-                .OrderBy(c => c.CategoryName)
-                .ToListAsync();
+            var result = await _recipeService.GetRecipesAsync(pageNumber, pageSize, searchTerm, categoryFilter, statusFilter, UserId, IsAdmin);
+            var page = result.Value;
 
             var viewModel = new RecipesIndexViewModel
             {
-                Recipes = recipes,
-                PageNumber = pageNumber,
-                PageSize = pageSize,
-                TotalCount = totalCount,
+                Recipes = page.Items,
+                PageNumber = page.PageNumber,
+                PageSize = page.PageSize,
+                TotalCount = page.TotalCount,
                 SearchTerm = searchTerm,
                 CategoryFilter = categoryFilter,
                 StatusFilter = statusFilter,
-                Categories = categories
+                Categories = await _categoryService.GetApprovedCategoriesAsync()
             };
 
             return View(viewModel);
@@ -125,93 +73,42 @@ namespace worldRecipeMvc.Controllers
 
             if (id == null)
             {
-                _logger.LogWarning("Details called with null id");
                 return NotFound();
             }
 
-            var recipe = await _context.Recipes
-                .Include(r => r.Category)
-                .Include(r => r.Owner)
-                .Include(r => r.RecipeIngredients)
-                    .ThenInclude(ri => ri.Ingredient)
-                .FirstOrDefaultAsync(m => m.RecipeID == id);
-
-            if (recipe == null)
+            var result = await _recipeService.GetRecipeForViewingAsync(id.Value, UserId, IsAdmin);
+            if (result.IsFailed)
             {
-                _logger.LogWarning("Recipe with ID {RecipeId} not found", id);
-                return NotFound();
+                return result.HasError<ForbiddenError>() ? Forbid() : NotFound();
             }
 
-            // Restrict viewing of drafts and private recipes to owner or admin
-            var status = recipe.Status?.ToLower();
-            if (status == "draft" || status == "private")
-            {
-                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                if (!(User.Identity.IsAuthenticated && (User.IsInRole("Admin") || recipe.OwnerID == userId)))
-                {
-                    _logger.LogWarning("User {UserId} attempted unauthorized access to recipe {RecipeId}", userId, id);
-                    return Forbid();
-                }
-            }
+            var recipe = result.Value;
+            var ingredients = recipe.RecipeIngredients.ToList();
 
-            var ingredients = await _context.RecipeIngredients
-                .Where(ri => ri.RecipeID == id)
-                .ToListAsync();
-
-           
-            List<string?> converted = FractionConversion(ingredients, id);
-            ViewData["Amount"] = converted;
+            ViewData["Amount"] = FractionConversion(ingredients);
             ViewData["Temperature"] = TemperatureConversion(temp, recipe.Temperature);
-            ViewData["PrepTime"] = TimeConversion(recipe.PrepTime);
-            ViewData["CookTime"] = TimeConversion(recipe.CookTime);
-            ViewData["TotalTime"] = TimeConversion((recipe.PrepTime + recipe.CookTime));
-            
+            ViewData["PrepTime"] = RecipeService.TimeConversion(recipe.PrepTime);
+            ViewData["CookTime"] = RecipeService.TimeConversion(recipe.CookTime);
+            ViewData["TotalTime"] = RecipeService.TimeConversion(recipe.PrepTime + recipe.CookTime);
+
+            // Ratings & favorites
+            ViewBag.RatingSummary = await _ratingService.GetSummaryAsync(id.Value, UserId);
+            ViewBag.Reviews = (await _ratingService.GetReviewsAsync(id.Value, 1, 10)).Value;
+            ViewBag.FavoriteInfo = await _favoriteService.GetInfoAsync(id.Value, UserId);
+            ViewBag.IsOwner = UserId != null && recipe.OwnerID == UserId;
+
             return View(recipe);
         }
 
         [Authorize]
         // GET: Recipes/Create
-
         public async Task<IActionResult> Create()
         {
-            var allCategories =
-               await _context.Categories
-               .OrderBy(c => c.CategoryName)
-               .ToListAsync();
-
-            var allingredients = 
-                await _context.Ingredients
-                .OrderBy(i => i.IngredientName)
-                .ToListAsync();
-
-            var viewModel = new CreateRecipeViewModel
-            {
-                Recipe = new Recipe(),
-                CategoryList = new SelectList(allCategories, "CategoryID", "CategoryName"),
-                IngredientList = new SelectList(allingredients, "IngredientID", "IngredientName")
-            };
-
-            foreach (SelectListItem item in viewModel.IngredientList)
-            {
-                var ingredient = allingredients.Where(c => c.IngredientName == item.Text && c.IsApproved == null);
-                if (ingredient != null && ingredient.Any())
-                {
-                    item.Disabled = true;
-                }
-            }
-
-            foreach (SelectListItem item in viewModel.CategoryList)
-            {
-                var category = allCategories.Where(c => c.CategoryName == item.Text && c.IsApproved == null);
-                if (category != null && category.Any())
-                {
-                    item.Disabled = true;
-                }
-            }
-
+            var viewModel = new CreateRecipeViewModel { Recipe = new Recipe() };
             viewModel.Ingredients.Add(new RecipeIngredient());
+            await PopulateCreateViewModelDropdowns(viewModel);
             ViewBag.currentDate = DateOnly.FromDateTime(DateTime.Now);
-            
+
             return View(viewModel);
         }
 
@@ -221,100 +118,43 @@ namespace worldRecipeMvc.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(CreateRecipeViewModel viewModel, string action, IFormFile? imageFile)
         {
-
-            if (action == "Add Ingredient") 
-            { 
-                var newIngredient = new RecipeIngredient();
-                viewModel.Ingredients.Add(newIngredient);
+            if (action == "Add Ingredient")
+            {
+                viewModel.Ingredients.Add(new RecipeIngredient());
                 await PopulateCreateViewModelDropdowns(viewModel);
                 ViewBag.currentDate = DateOnly.FromDateTime(DateTime.Now);
                 return View(viewModel);
             }
 
-            if(action == "Save Recipe") 
+            if (action == "Save Recipe" && ModelState.IsValid)
             {
-                if (ModelState.IsValid)
+                // Handle image upload before creating the recipe
+                if (imageFile != null && imageFile.Length > 0)
                 {
-                    if (!RecipeExists(viewModel.Recipe.RecipeName))
+                    var imageResult = await _imageStorage.SaveRecipeImageAsync(imageFile);
+                    if (imageResult.IsFailed)
                     {
-
-                        var recipeToSave = viewModel.Recipe;
-                        recipeToSave.Status = "Draft";
-                        
-                        // Handle image upload
-                        if (imageFile != null && imageFile.Length > 0)
-                        {
-                            var imageUrl = await SaveRecipeImage(imageFile);
-                            if (imageUrl != null)
-                            {
-                                recipeToSave.ImageUrl = imageUrl;
-                            }
-                            else
-                            {
-                                recipeToSave.ImageUrl = "/websiteImages/RecipeDefaultImage.png";
-                            }
-                        }
-                        else if (string.IsNullOrWhiteSpace(recipeToSave.ImageUrl))
-                        {
-                            recipeToSave.ImageUrl = "/websiteImages/RecipeDefaultImage.png";
-                        }
-
-                        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                        recipeToSave.OwnerID = userId;
-
-                        _context.Add(recipeToSave);
-                        await _context.SaveChangesAsync();
-
-                        var addedIngredientsIds = new HashSet<int>();
-
-                        foreach (var ingredient in viewModel.Ingredients)
-                        {
-                            if(ingredient.IngredientID.HasValue && ingredient.IngredientID.Value > 0 
-                                && ingredient.Amount.HasValue && ingredient.Amount.Value > 0)
-                            {
-                                int currentIngredientId = ingredient.IngredientID.Value;
-
-                                if(!addedIngredientsIds.Contains(currentIngredientId))
-                                {
-                                    ingredient.RecipeID = recipeToSave.RecipeID.Value;
-                                    _context.Add(ingredient);
-
-                                    addedIngredientsIds.Add(currentIngredientId);
-                                }
-                                
-                            }
-                        }
-                        await _context.SaveChangesAsync();
-
-                        _logger.LogInformation("Recipe {RecipeName} created by user {UserId}", recipeToSave.RecipeName, userId);
-                        TempData["SaveConfirmation"] = "Recipe Successfully Saved";
-                        return RedirectToAction(nameof(Index));
+                        ModelState.AddModelError("ImageFile", imageResult.Errors.First().Message);
+                        await PopulateCreateViewModelDropdowns(viewModel);
+                        ViewBag.currentDate = DateOnly.FromDateTime(DateTime.Now);
+                        return View(viewModel);
                     }
-                    else
-                    {
-                        ModelState.AddModelError(nameof(Recipe.RecipeName), $"A Recipe with the name {viewModel.Recipe.RecipeName} already exists");
-
-                    }
+                    viewModel.Recipe.ImageUrl = imageResult.Value;
                 }
 
+                var result = await _recipeService.CreateRecipeAsync(viewModel.Recipe, viewModel.Ingredients, UserId!);
+                if (result.IsSuccess)
+                {
+                    TempData["SaveConfirmation"] = "Recipe Successfully Saved";
+                    return RedirectToAction(nameof(Index));
+                }
 
+                ModelState.AddModelError("Recipe.RecipeName", result.Errors.First().Message);
             }
-            var adminApprovedCategories_fail = 
-                await _context.Categories
-                .Where(c => c.IsApproved == true)
-                .OrderBy(c => c.CategoryName)
-                .ToListAsync();
-            
-            var allIngredients_fail = 
-                await _context.Ingredients
-                .OrderBy(i => i.IngredientName)
-                .ToListAsync();
 
-            viewModel.CategoryList = new SelectList(adminApprovedCategories_fail, "CategoryID", "CategoryName", viewModel.Recipe.CategoryID);
-            viewModel.IngredientList = new SelectList(allIngredients_fail, "IngredientID", "IngredientName");
-
+            await PopulateCreateViewModelDropdowns(viewModel);
+            ViewBag.currentDate = DateOnly.FromDateTime(DateTime.Now);
             return View(viewModel);
-
         }
 
         [Authorize]
@@ -326,83 +166,44 @@ namespace worldRecipeMvc.Controllers
                 return NotFound();
             }
 
-            var recipeToEdit = await _context.Recipes
-                .Include(r => r.RecipeIngredients)
-                .ThenInclude(ri => ri.Ingredient)
-                .Include(r => r.Category)
-                .FirstOrDefaultAsync(r => r.RecipeID == id);
-
-            if (recipeToEdit == null)
+            var result = await _recipeService.GetRecipeWithDetailsAsync(id.Value);
+            if (result.IsFailed)
             {
-                _logger.LogWarning("Recipe with ID {RecipeId} not found for editing", id);
                 return NotFound();
             }
 
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            bool isAdmin = User.IsInRole("Admin");
-            bool isOwner = recipeToEdit.OwnerID == userId;
-            if (!(isAdmin || isOwner))
+            var recipeToEdit = result.Value;
+            bool isOwner = recipeToEdit.OwnerID == UserId;
+            if (!(IsAdmin || isOwner))
             {
-                _logger.LogWarning("User {UserId} attempted unauthorized edit of recipe {RecipeId}", userId, id);
+                _logger.LogWarning("User {UserId} attempted unauthorized edit of recipe {RecipeId}", UserId, id);
                 return Forbid();
             }
 
-            bool ownerCanChangeStatus = false;
-            if (isAdmin)
-            {
-                ownerCanChangeStatus = true;
-            }
-            else if (isOwner)
+            bool ownerCanChangeStatus = IsAdmin;
+            if (!IsAdmin && isOwner)
             {
                 bool allIngredientsApproved = recipeToEdit.RecipeIngredients.All(ri => ri.Ingredient != null && ri.Ingredient.IsApproved == true);
                 bool categoryApproved = recipeToEdit.Category == null || recipeToEdit.Category.IsApproved == true;
                 ownerCanChangeStatus = allIngredientsApproved && categoryApproved;
             }
 
-                var allCategories =
-                    await _context.Categories
-                    .OrderBy(c => c.CategoryName)
-                    .ToListAsync();
-
-
-            var allIngredients =
-              await _context.Ingredients
-              .OrderBy(i => i.IngredientName)
-              .ToListAsync();
-
             var viewModel = new EditRecipeViewModel
             {
                 Recipe = recipeToEdit,
                 Ingredients = recipeToEdit.RecipeIngredients.ToList(),
-                CategoryList = new SelectList(allCategories, "CategoryID", "CategoryName", recipeToEdit.CategoryID),
-                IngredientList = new SelectList(allIngredients, "IngredientID", "IngredientName"),
-                StatusList = ownerCanChangeStatus ? new SelectList(RecipeStatus.All, recipeToEdit.Status) : new SelectList(new[] { recipeToEdit.Status }, recipeToEdit.Status)
-
+                StatusList = ownerCanChangeStatus
+                    ? new SelectList(RecipeStatus.All, recipeToEdit.Status)
+                    : new SelectList(new[] { recipeToEdit.Status }, recipeToEdit.Status)
             };
 
-            foreach (SelectListItem item in viewModel.IngredientList)
-            {
-                var ingredient = allIngredients.Where(c => c.IngredientName == item.Text && c.IsApproved == null);
-                if (ingredient != null && ingredient.Any())
-                {
-                    item.Disabled = true;
-                }
-            }
-
-            foreach (SelectListItem item in viewModel.CategoryList)
-            {
-                var category = allCategories.Where(c => c.CategoryName == item.Text && c.IsApproved == null);
-                if (category != null && category.Any())
-                {
-                    item.Disabled = true;
-                }
-            }
+            await PopulateEditViewModelDropdowns(viewModel, keepStatusList: true);
 
             if (viewModel.Ingredients.Count == 0)
             {
                 viewModel.Ingredients.Add(new RecipeIngredient() { RecipeID = recipeToEdit.RecipeID });
             }
-        
+
             ViewBag.currentDate = DateOnly.FromDateTime(DateTime.Now);
             return View(viewModel);
         }
@@ -417,39 +218,9 @@ namespace worldRecipeMvc.Controllers
                 return NotFound();
             }
 
-            var recipeInDb = await _context.Recipes
-                .Include(r => r.RecipeIngredients)
-                    .ThenInclude(ri => ri.Ingredient)
-                .Include(r => r.Category)
-                .FirstOrDefaultAsync(r => r.RecipeID == id);
-
-            if (recipeInDb == null) return NotFound();
-
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            bool isAdmin = User.IsInRole("Admin");
-            bool isOwner = recipeInDb.OwnerID == userId;
-            if (!(isAdmin || isOwner))
-            {
-                return Forbid();
-            }
-
-            if (!isAdmin && isOwner)
-            {
-                bool allIngredientsApproved = recipeInDb.RecipeIngredients.All(ri => ri.Ingredient != null && ri.Ingredient.IsApproved == true);
-                bool categoryApproved = recipeInDb.Category == null || recipeInDb.Category.IsApproved == true;
-                bool ownerCanChangeStatus = allIngredientsApproved && categoryApproved;
-
-                if (!ownerCanChangeStatus)
-                {
-                    viewModel.Recipe.Status = recipeInDb.Status;
-                }
-            }
-
             if (action == "Add Ingredient")
             {
-                var newIngredient = new RecipeIngredient { RecipeID = viewModel.Recipe.RecipeID };
-                viewModel.Ingredients.Add(newIngredient);
-
+                viewModel.Ingredients.Add(new RecipeIngredient { RecipeID = viewModel.Recipe.RecipeID });
                 await PopulateEditViewModelDropdowns(viewModel);
                 return View(viewModel);
             }
@@ -457,136 +228,52 @@ namespace worldRecipeMvc.Controllers
             if (action.StartsWith("Remove_"))
             {
                 int indexRemove = int.Parse(action.Split('_')[1]);
-
-                if(indexRemove >= 0 && indexRemove < viewModel.Ingredients.Count)
+                if (indexRemove >= 0 && indexRemove < viewModel.Ingredients.Count)
                 {
                     viewModel.Ingredients.RemoveAt(indexRemove);
                 }
                 await PopulateEditViewModelDropdowns(viewModel);
                 return View(viewModel);
-
             }
 
-            if (action == "Update Recipe")
+            if (action == "Update Recipe" && ModelState.IsValid)
             {
-                if (id != viewModel.Recipe.RecipeID)
+                // Handle image upload before updating the recipe
+                if (imageFile != null && imageFile.Length > 0)
+                {
+                    var imageResult = await _imageStorage.SaveRecipeImageAsync(imageFile);
+                    if (imageResult.IsFailed)
+                    {
+                        ModelState.AddModelError("ImageFile", imageResult.Errors.First().Message);
+                        await PopulateEditViewModelDropdowns(viewModel);
+                        return View(viewModel);
+                    }
+
+                    var oldImage = (await _recipeService.GetRecipeWithDetailsAsync(id)).ValueOrDefault?.ImageUrl;
+                    _imageStorage.DeleteRecipeImage(oldImage);
+                    viewModel.Recipe.ImageUrl = imageResult.Value;
+                }
+
+                var result = await _recipeService.UpdateRecipeAsync(id, viewModel.Recipe, viewModel.Ingredients, UserId!, IsAdmin);
+                if (result.IsSuccess)
+                {
+                    TempData["SaveConfirmation"] = "Recipe Successfully Updated";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                if (result.HasError<NotFoundError>())
                 {
                     return NotFound();
                 }
-                bool nameExistsOnOtherCategory = await _context.Recipes
-                      .AnyAsync(r => r.RecipeName
-                      .ToUpper() == viewModel.Recipe.RecipeName
-                      .ToUpper() && r.RecipeID != viewModel.Recipe.RecipeID);
-
-                if (nameExistsOnOtherCategory)
+                if (result.HasError<ForbiddenError>())
                 {
-                    ModelState.AddModelError("Recipe.RecipeName", $"A Recipe with the name {viewModel.Recipe.RecipeName} already exists");
+                    return Forbid();
                 }
-
-                if (ModelState.IsValid)
-                {
-
-                    try
-                    {
-                        var recipeUpdate = await _context.Recipes
-                            .Include(r => r.RecipeIngredients)
-                                .ThenInclude(ri => ri.Ingredient)
-                            .FirstOrDefaultAsync(r => r.RecipeID == id);
-
-                        if (recipeUpdate == null) return NotFound();
-
-                        recipeUpdate.RecipeName = viewModel.Recipe.RecipeName;
-                        recipeUpdate.CategoryID = viewModel.Recipe.CategoryID;
-                        recipeUpdate.PrepTime = viewModel.Recipe.PrepTime;
-                        recipeUpdate.CookTime = viewModel.Recipe.CookTime;
-                        recipeUpdate.Tips = viewModel.Recipe.Tips;
-                        recipeUpdate.NumberOfServings = viewModel.Recipe.NumberOfServings;
-                        recipeUpdate.Instructions = viewModel.Recipe.Instructions;
-                        recipeUpdate.Temperature = viewModel.Recipe.Temperature;
-
-                        // Handle image upload for edit
-                        if (imageFile != null && imageFile.Length > 0)
-                        {
-                            // Delete old image if it's not the default
-                            if (!string.IsNullOrEmpty(recipeUpdate.ImageUrl) && 
-                                !recipeUpdate.ImageUrl.Contains("RecipeDefaultImage"))
-                            {
-                                DeleteRecipeImage(recipeUpdate.ImageUrl);
-                            }
-
-                            var imageUrl = await SaveRecipeImage(imageFile);
-                            if (imageUrl != null)
-                            {
-                                recipeUpdate.ImageUrl = imageUrl;
-                            }
-                        }
-                        else if (!string.IsNullOrWhiteSpace(viewModel.Recipe.ImageUrl))
-                        {
-                            recipeUpdate.ImageUrl = viewModel.Recipe.ImageUrl;
-                        }
-
-                        if (!string.IsNullOrEmpty(viewModel.Recipe.Status))
-                        {
-                            recipeUpdate.Status = viewModel.Recipe.Status;
-                        }
-
-                        foreach( var oldIngredient in recipeUpdate.RecipeIngredients.ToList())
-                        {
-                            _context.RecipeIngredients.Remove(oldIngredient);
-                        }
-
-                        var addedIngredientsIds = new HashSet<int>();
-                        foreach(var newIngredient in viewModel.Ingredients)
-                        {
-                            if(newIngredient.IngredientID.HasValue && 
-                               newIngredient.IngredientID.Value > 0 
-                               && newIngredient.Amount.HasValue && newIngredient.Amount.Value > 0)
-                            {
-                                int currentIngredientId = newIngredient.IngredientID.Value;
-                                if (!addedIngredientsIds.Contains(currentIngredientId))
-                                {
-                                    newIngredient.RecipeID = recipeUpdate.RecipeID.Value;
-
-                                    var ingredientToAdd = new RecipeIngredient
-                                    {
-                                        RecipeID = recipeUpdate.RecipeID.Value,
-                                        IngredientID = newIngredient.IngredientID.Value,
-                                        Amount = newIngredient.Amount,
-                                        Unit = newIngredient.Unit
-                                    };
-
-                                    _context.RecipeIngredients.Add(ingredientToAdd);
-                                    addedIngredientsIds.Add(currentIngredientId);
-                                }
-                            }
-                        }
-                        await _context.SaveChangesAsync();
-                        _logger.LogInformation("Recipe {RecipeId} updated by user {UserId}", id, userId);
-                        TempData["SaveConfirmation"] = "Recipe Successfully Updated and set to Draft for approval";
-                        return RedirectToAction(nameof(Index));
-
-                    }
-                    catch (DbUpdateConcurrencyException ex)
-                    {
-                        if (!RecipeExists(viewModel.Recipe.RecipeID))
-                        {
-                            return NotFound();
-                        }
-                        else 
-                        {
-                           _logger.LogError(ex, "Concurrency error updating recipe {RecipeId}", id);
-                           throw;
-                        }
-                    }
-
-                }
-
+                ModelState.AddModelError("Recipe.RecipeName", result.Errors.First().Message);
             }
 
             await PopulateEditViewModelDropdowns(viewModel);
             return View(viewModel);
-
-
         }
 
         [Authorize]
@@ -598,22 +285,18 @@ namespace worldRecipeMvc.Controllers
                 return NotFound();
             }
 
-            var recipe = await _context.Recipes
-                .Include(r => r.Category)
-                .Include(r => r.Owner)
-                .FirstOrDefaultAsync(m => m.RecipeID == id);
-            if (recipe == null)
+            var result = await _recipeService.GetRecipeWithDetailsAsync(id.Value);
+            if (result.IsFailed)
             {
                 return NotFound();
             }
 
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (!(User.IsInRole("Admin") || recipe.OwnerID == userId))
+            if (!(IsAdmin || result.Value.OwnerID == UserId))
             {
                 return Forbid();
             }
 
-            return View(recipe);
+            return View(result.Value);
         }
 
         [Authorize]
@@ -622,20 +305,15 @@ namespace worldRecipeMvc.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int? id)
         {
-            var recipe = await _context.Recipes.FindAsync(id);
-            if (recipe != null)
+            if (id != null)
             {
-                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                if (!(User.IsInRole("Admin") || recipe.OwnerID == userId))
+                var result = await _recipeService.DeleteRecipeAsync(id.Value, UserId!, IsAdmin);
+                if (result.HasError<ForbiddenError>())
                 {
                     return Forbid();
                 }
-
-                _context.Recipes.Remove(recipe);
-                _logger.LogInformation("Recipe {RecipeId} deleted by user {UserId}", id, userId);
             }
 
-            await _context.SaveChangesAsync();
             return RedirectToAction(nameof(Index));
         }
 
@@ -646,16 +324,11 @@ namespace worldRecipeMvc.Controllers
         {
             if (id == null) return NotFound();
 
-            var recipe = await _context.Recipes
-                .Include(r => r.Category)
-                .Include(r => r.Owner)
-                .Include(r => r.RecipeIngredients)
-                    .ThenInclude(ri => ri.Ingredient)
-                .FirstOrDefaultAsync(r => r.RecipeID == id);
-            if (recipe == null) return NotFound();
+            var result = await _recipeService.GetRecipeWithDetailsAsync(id.Value);
+            if (result.IsFailed) return NotFound();
 
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (!(User.IsInRole("Admin") || recipe.OwnerID == userId)) return Forbid();
+            var recipe = result.Value;
+            if (!(IsAdmin || recipe.OwnerID == UserId)) return Forbid();
 
             ViewBag.StatusList = new SelectList(RecipeStatus.All, recipe.Status);
             return View("ChangeStatus", recipe);
@@ -667,131 +340,62 @@ namespace worldRecipeMvc.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ChangeStatus(int id, string status)
         {
-            var recipe = await _context.Recipes
-                .Include(r => r.Category)
-                .Include(r => r.Owner)
-                .Include(r => r.RecipeIngredients)
-                    .ThenInclude(ri => ri.Ingredient)
-                .FirstOrDefaultAsync(r => r.RecipeID == id);
-            if (recipe == null) return NotFound();
-
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            bool isAdmin = User.IsInRole("Admin");
-            bool isOwner = recipe.OwnerID == userId;
-            if (!(isAdmin || isOwner)) return Forbid();
-
-            // Basic validation: only allow values in RecipeStatus.All
-            if (!RecipeStatus.All.Contains(status))
+            var result = await _recipeService.ChangeStatusAsync(id, status, UserId!, IsAdmin);
+            if (result.IsSuccess)
             {
-                ModelState.AddModelError("Status", "Invalid status selection.");
-                ViewBag.StatusList = new SelectList(RecipeStatus.All, recipe.Status);
-                return View("ChangeStatus", recipe);
+                TempData["SaveConfirmation"] = "Status updated.";
+                return RedirectToAction(nameof(Details), new { id });
             }
 
-          
-            recipe.Status = status;
-            _logger.LogInformation("Recipe {RecipeId} status changed to {Status} by user {UserId}", id, status, userId);
-            
-            await _context.SaveChangesAsync();
-            TempData["SaveConfirmation"] = "Status updated.";
-            return RedirectToAction(nameof(Details), new { id });
-        }
+            if (result.HasError<NotFoundError>()) return NotFound();
+            if (result.HasError<ForbiddenError>()) return Forbid();
 
-        private bool RecipeExists(int? id)
-        {
-            return _context.Recipes.Any(e => e.RecipeID == id);
-        }
+            // Invalid status value: redisplay the form with the error
+            var recipeResult = await _recipeService.GetRecipeWithDetailsAsync(id);
+            if (recipeResult.IsFailed) return NotFound();
 
-        private bool RecipeExists(string? name)
-        {
-            if(name == null)
-            {
-                return false;
-            }
-
-            return _context.Recipes.Any(e => e.RecipeName.ToUpper() == name.ToUpper());
+            ModelState.AddModelError("Status", result.Errors.First().Message);
+            ViewBag.StatusList = new SelectList(RecipeStatus.All, recipeResult.Value.Status);
+            return View("ChangeStatus", recipeResult.Value);
         }
 
         private async Task PopulateCreateViewModelDropdowns(CreateRecipeViewModel viewModel)
         {
-            var allCategories = await _context.Categories
-                .OrderBy(c => c.CategoryName).ToListAsync();
-            var allIngredients = await _context.Ingredients
-                .OrderBy(i => i.IngredientName).ToListAsync();
+            var allCategories = await _categoryService.GetAllCategoriesAsync();
+            var allIngredients = await _ingredientService.GetAllIngredientsAsync();
 
             viewModel.CategoryList = new SelectList(allCategories, "CategoryID", "CategoryName", viewModel.Recipe.CategoryID);
             viewModel.IngredientList = new SelectList(allIngredients, "IngredientID", "IngredientName");
 
-            foreach (SelectListItem item in viewModel.IngredientList)
-            {
-                var ingredient = allIngredients.Where(c => c.IngredientName == item.Text && c.IsApproved == null);
-                if (ingredient != null && ingredient.Any())
-                {
-                    item.Disabled = true;
-                }
-            }
-
-            foreach (SelectListItem item in viewModel.CategoryList)
-            {
-                var category = allCategories.Where(c => c.CategoryName == item.Text && c.IsApproved == null);
-                if (category != null && category.Any())
-                {
-                    item.Disabled = true;
-                }
-            }
+            DisablePendingItems(viewModel.IngredientList, allIngredients.Where(i => i.IsApproved == null).Select(i => i.IngredientName));
+            DisablePendingItems(viewModel.CategoryList, allCategories.Where(c => c.IsApproved == null).Select(c => c.CategoryName));
         }
-        private async Task PopulateEditViewModelDropdowns(EditRecipeViewModel viewModel)
+
+        private async Task PopulateEditViewModelDropdowns(EditRecipeViewModel viewModel, bool keepStatusList = false)
         {
-            var allCategories = await _context.Categories
-                 .OrderBy(c => c.CategoryName).ToListAsync();
+            var allCategories = await _categoryService.GetAllCategoriesAsync();
+            var allIngredients = await _ingredientService.GetAllIngredientsAsync();
 
-            var allIngredients = await _context.Ingredients
-                .OrderBy(i => i.IngredientName).ToListAsync();
-
-            var categorySelectItems = allCategories
-                .Select(c => new SelectListItem
-                {
-                    Value = c.CategoryID.ToString(),
-                    Text = c.CategoryName,
-                    Disabled = (c.IsApproved != true),
-                    Selected = (c.CategoryID == viewModel.Recipe.CategoryID)
-                })
-                .ToList();
-
-            viewModel.CategoryList = new SelectList(categorySelectItems, "Value", "Text", viewModel.Recipe.CategoryID);
+            viewModel.CategoryList = new SelectList(allCategories, "CategoryID", "CategoryName", viewModel.Recipe.CategoryID);
             viewModel.IngredientList = new SelectList(allIngredients, "IngredientID", "IngredientName");
-            viewModel.StatusList = new SelectList(RecipeStatus.All, viewModel.Recipe.Status);
-
-            foreach (SelectListItem item in viewModel.IngredientList)
+            if (!keepStatusList)
             {
-                var ingredient = allIngredients.Where(c => c.IngredientName == item.Text && c.IsApproved == null);
-                if (ingredient != null && ingredient.Any())
-                {
-                    item.Disabled = true;
-                }
+                viewModel.StatusList = new SelectList(RecipeStatus.All, viewModel.Recipe.Status);
             }
 
-            foreach (SelectListItem item in viewModel.CategoryList)
-            {
-                var categories = allCategories.Where(c => c.CategoryName == item.Text && c.IsApproved == null);
-                if (categories != null && categories.Any())
-                {
-                    item.Disabled = true;
-                }
-            }
-
+            DisablePendingItems(viewModel.IngredientList, allIngredients.Where(i => i.IsApproved == null).Select(i => i.IngredientName));
+            DisablePendingItems(viewModel.CategoryList, allCategories.Where(c => c.IsApproved == null).Select(c => c.CategoryName));
         }
-        public static string? TimeConversion(double? time)
+
+        private static void DisablePendingItems(SelectList list, IEnumerable<string?> pendingNames)
         {
-            if (time >= 60)
+            var pending = pendingNames.Where(n => n != null).ToHashSet();
+            foreach (SelectListItem item in list)
             {
-                double hours = (int)(time / 60);
-                double minutes = (double)(time % 60);
-                return $"{hours} hrs {minutes} mins";
-            }
-            else
-            {
-                return $"{time} mins";
+                if (pending.Contains(item.Text))
+                {
+                    item.Disabled = true;
+                }
             }
         }
 
@@ -800,21 +404,17 @@ namespace worldRecipeMvc.Controllers
             if (type == null || type == true)
             {
                 return temperature;
-                
             }
-            else
-            {
-                return (int?)((temperature - 32) / 1.8);
-            } 
+
+            return (int?)((temperature - 32) / 1.8);
         }
 
-        private List<string?> FractionConversion(List<RecipeIngredient?> ingredients, int? id)
+        private static List<string?> FractionConversion(List<RecipeIngredient?> ingredients)
         {
             List<string?> converted = new List<string?>();
 
             foreach (var ingredient in ingredients)
             {
-
                 if (ingredient?.Amount == null)
                 {
                     converted.Add("N/A");
@@ -847,92 +447,6 @@ namespace worldRecipeMvc.Controllers
             }
 
             return converted;
-
-        }
-
-        // Helper method to save uploaded recipe image
-        private async Task<string?> SaveRecipeImage(IFormFile imageFile)
-        {
-            try
-            {
-                // Validate file type
-                var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
-                var extension = Path.GetExtension(imageFile.FileName).ToLowerInvariant();
-                
-                if (!allowedExtensions.Contains(extension))
-                {
-                    _logger.LogWarning("Invalid image file type: {Extension}", extension);
-                    ModelState.AddModelError("ImageFile", "Only image files (jpg, jpeg, png, gif, webp) are allowed.");
-                    return null;
-                }
-
-                // Validate file size (max 5MB)
-                if (imageFile.Length > 5 * 1024 * 1024)
-                {
-                    _logger.LogWarning("Image file too large: {Size} bytes", imageFile.Length);
-                    ModelState.AddModelError("ImageFile", "Image file size must be less than 5MB.");
-                    return null;
-                }
-
-                // Create unique filename
-                var uniqueFileName = $"{Guid.NewGuid()}{extension}";
-                
-                // Get configured upload path or fall back to default
-                var uploadsFolder = _configuration["ImageUpload:StoragePath"] 
-                    ?? Path.Combine(_environment.WebRootPath, "images", "recipes");
-                
-                // Create directory if it doesn't exist
-                if (!Directory.Exists(uploadsFolder))
-                {
-                    Directory.CreateDirectory(uploadsFolder);
-                }
-
-                var filePath = Path.Combine(uploadsFolder, uniqueFileName);
-
-                // Save the file
-                using (var fileStream = new FileStream(filePath, FileMode.Create))
-                {
-                    await imageFile.CopyToAsync(fileStream);
-                }
-
-                _logger.LogInformation("Recipe image saved: {FileName}", uniqueFileName);
-                return $"/images/recipes/{uniqueFileName}";
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving recipe image");
-                return null;
-            }
-        }
-
-        // Helper method to delete old recipe image
-        private void DeleteRecipeImage(string imageUrl)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(imageUrl) || imageUrl.Contains("RecipeDefaultImage"))
-                {
-                    return;
-                }
-
-                var fileName = Path.GetFileName(imageUrl);
-                
-                // Get configured upload path or fall back to default
-                var uploadsFolder = _configuration["ImageUpload:StoragePath"] 
-                    ?? Path.Combine(_environment.WebRootPath, "images", "recipes");
-                var filePath = Path.Combine(uploadsFolder, fileName);
-
-                if (System.IO.File.Exists(filePath))
-                {
-                    System.IO.File.Delete(filePath);
-                    _logger.LogInformation("Deleted old recipe image: {FileName}", fileName);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting recipe image: {ImageUrl}", imageUrl);
-            }
         }
     }
 }
-

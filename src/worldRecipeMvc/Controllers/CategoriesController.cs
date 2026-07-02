@@ -1,45 +1,42 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using worldRecipeMvc.Data;
 using worldRecipeMvc.Models;
+using worldRecipeMvc.Models.ViewModels;
+using worldRecipeMvc.Services;
+using worldRecipeMvc.Services.Errors;
 using System.Security.Claims;
-
 
 namespace worldRecipeMvc.Controllers
 {
     public class CategoriesController : Controller
     {
-        private readonly ApplicationDbContext _context;
+        private const int DefaultPageSize = 10;
+
+        private readonly ICategoryService _categoryService;
         private readonly ILogger<CategoriesController> _logger;
-        
-        public CategoriesController(ApplicationDbContext context, ILogger<CategoriesController> logger)
+
+        public CategoriesController(ICategoryService categoryService, ILogger<CategoriesController> logger)
         {
-            _context = context;
+            _categoryService = categoryService;
             _logger = logger;
         }
 
+        private string? UserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
+        private bool IsAdmin => User.IsInRole("Admin");
+
         // GET: Categories
-        public async Task<IActionResult> Index(string sortOrder)
+        public async Task<IActionResult> Index(int pageNumber = 1, string? searchTerm = null, string? sortOrder = null)
         {
-            _logger.LogInformation("Fetching categories with sort order: {SortOrder}", sortOrder ?? "default");
-            
-            ViewData["NameSortParam"] = String.IsNullOrEmpty(sortOrder) ? "name_desc" : "";
+            ViewData["NameSortParam"] = string.IsNullOrEmpty(sortOrder) ? "name_desc" : "";
 
-            var categories = from c in _context.Categories
-                             select c;
+            var result = await _categoryService.GetCategoriesAsync(pageNumber, DefaultPageSize, searchTerm, sortOrder);
 
-            switch (sortOrder) 
+            return View(new CategoriesIndexViewModel
             {
-                case "name_desc":
-                    categories = categories.OrderByDescending(c => c.CategoryName);
-                    break;
-                default:
-                    categories = categories.OrderBy(c => c.CategoryName);
-                    break;
-            }
-
-            return View(await categories.AsNoTracking().ToListAsync());
+                Categories = result.Value,
+                SearchTerm = searchTerm,
+                SortOrder = sortOrder
+            });
         }
 
         // GET: Categories/Details/5
@@ -47,20 +44,11 @@ namespace worldRecipeMvc.Controllers
         {
             if (id == null)
             {
-                _logger.LogWarning("Details called with null id");
                 return NotFound();
             }
 
-            var category = await _context.Categories
-                .FirstOrDefaultAsync(m => m.CategoryID == id);
-            
-            if (category == null)
-            {
-                _logger.LogWarning("Category with ID {CategoryId} not found", id);
-                return NotFound();
-            }
-
-            return View(category);
+            var result = await _categoryService.GetCategoryByIdAsync(id.Value);
+            return result.IsFailed ? NotFound() : View(result.Value);
         }
 
         [Authorize]
@@ -78,30 +66,14 @@ namespace worldRecipeMvc.Controllers
         {
             if (ModelState.IsValid)
             {
-                if (!CategoryExists(category.CategoryName))
+                var result = await _categoryService.CreateCategoryAsync(category, UserId!);
+                if (result.IsSuccess)
                 {
-                    var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                    var newCategory = new Category
-                    {
-                        CategoryName = category.CategoryName,
-                        CategoryDescription = category.CategoryDescription,
-                        IsApproved = null!,
-                        OwnerID = userId
-                    };
-
-                    _context.Add(newCategory);
-                    await _context.SaveChangesAsync();
-                    
-                    _logger.LogInformation("Category '{CategoryName}' created with ID {CategoryId} by user {UserId}", newCategory.CategoryName, newCategory.CategoryID, userId);
                     TempData["Confirmation"] = "Created";
-                    return RedirectToAction("ConfirmationCategory", new { id = newCategory.CategoryID });
+                    return RedirectToAction("ConfirmationCategory", new { id = result.Value.CategoryID });
                 }
-                else
-                {
-                   
-                    ModelState.AddModelError(nameof(category.CategoryName), $"A Category with the name {category.CategoryName} already exists");
-                    return View(category); 
-                }
+
+                ModelState.AddModelError(nameof(category.CategoryName), result.Errors.First().Message);
             }
             return View(category);
         }
@@ -112,25 +84,19 @@ namespace worldRecipeMvc.Controllers
         {
             if (id == null)
             {
-                _logger.LogWarning("Edit called with null id");
                 return NotFound();
             }
 
-            var category = await _context.Categories.FindAsync(id);
-            if (category == null)
+            var result = await _categoryService.GetCategoryByIdAsync(id.Value);
+            if (result.IsFailed)
             {
-                _logger.LogWarning("Category with ID {CategoryId} not found for editing", id);
                 return NotFound();
             }
 
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            bool isAdmin = User.IsInRole("Admin");
-            bool isOwner = category.OwnerID == userId;
-
-            // Only allow edit if: Admin OR (owner AND not approved)
-            if (!isAdmin && (!isOwner || category.IsApproved == true))
+            var category = result.Value;
+            if (!(IsAdmin || (category.OwnerID == UserId && category.IsApproved != true)))
             {
-                _logger.LogWarning("User {UserId} attempted to edit category {CategoryId} without permission", userId, id);
+                _logger.LogWarning("User {UserId} attempted to edit category {CategoryId} without permission", UserId, id);
                 TempData["Error"] = "You can only edit your own unapproved categories.";
                 return RedirectToAction(nameof(Index));
             }
@@ -144,102 +110,49 @@ namespace worldRecipeMvc.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int? id, [Bind("CategoryID,CategoryName,CategoryDescription")] Category category)
         {
-            if (id != category.CategoryID)
+            if (id == null || id != category.CategoryID)
             {
                 return NotFound();
             }
 
-            var existing = await _context.Categories.FindAsync(id);
-            if (existing == null) return NotFound();
-
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            bool isAdmin = User.IsInRole("Admin");
-            bool isOwner = existing.OwnerID == userId;
-
-            // Only allow edit if: Admin OR (owner AND not approved)
-            if (!isAdmin && (!isOwner || existing.IsApproved == true))
-            {
-                _logger.LogWarning("User {UserId} attempted to edit category {CategoryId} without permission", userId, id);
-                return Forbid();
-            }
-
             if (ModelState.IsValid)
             {
-                bool nameExistOnOtherCategory = await _context.Categories
-                    .AnyAsync(c => c.CategoryName.ToUpper() == category.CategoryName.ToUpper() && c.CategoryID != category.CategoryID);
-
-                if (nameExistOnOtherCategory)
+                var result = await _categoryService.UpdateCategoryAsync(id.Value, category, UserId!, IsAdmin);
+                if (result.IsSuccess)
                 {
-                    ModelState.AddModelError(nameof(category.CategoryName), $"A Category with the name {category.CategoryName} already exists");
-                }
-                else
-                {
-                    try
-                    {
-                        existing.CategoryName = category.CategoryName;
-                        existing.CategoryDescription = category.CategoryDescription;
-                        // Reset approval status to pending (null) on any edit
-                        existing.IsApproved = null;
-                        
-                        await _context.SaveChangesAsync();
-                        
-                        _logger.LogInformation("Category {CategoryId} '{CategoryName}' updated", category.CategoryID, category.CategoryName);
-                        TempData["Confirmation"] = "Modified";
-                    }
-                    catch (DbUpdateConcurrencyException ex)
-                    {
-                        if (!CategoryExists(category.CategoryID))
-                        {
-                            return NotFound();
-                        }
-                        else
-                        {
-                            _logger.LogError(ex, "Concurrency error updating category {CategoryId}", category.CategoryID);
-                            throw;
-                        }
-                    }
+                    TempData["Confirmation"] = "Modified";
                     return RedirectToAction("ConfirmationCategory", new { id = category.CategoryID });
                 }
+
+                if (result.HasError<NotFoundError>()) return NotFound();
+                if (result.HasError<ForbiddenError>()) return Forbid();
+                ModelState.AddModelError(nameof(category.CategoryName), result.Errors.First().Message);
             }
             return View(category);
         }
 
         [Authorize(Roles = "Admin")]
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Approve(int id)
         {
-            var category = await _context.Categories.FindAsync(id);
-            if (category == null)
-            {
-                _logger.LogWarning("Category with ID {CategoryId} not found for approval", id);
-                return NotFound();
-            }
-            
-            category.IsApproved = true;
-            await _context.SaveChangesAsync();
-            
-            _logger.LogInformation("Category {CategoryId} '{CategoryName}' approved", id, category.CategoryName);
+            var result = await _categoryService.SetApprovalAsync(id, isApproved: true);
+            if (result.IsFailed) return NotFound();
+
             TempData["Confirmation"] = "Approved";
-            return RedirectToAction(nameof(Index), new { id });
+            return RedirectToAction(nameof(Index));
         }
 
         [Authorize(Roles = "Admin")]
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Reject(int id)
         {
-            var category = await _context.Categories.FindAsync(id);
-            if (category == null)
-            {
-                _logger.LogWarning("Category with ID {CategoryId} not found for rejection", id);
-                return NotFound();
-            }
-            
-            category.IsApproved = false;
-            await _context.SaveChangesAsync();
-            
-            _logger.LogInformation("Category {CategoryId} '{CategoryName}' rejected", id, category.CategoryName);
+            var result = await _categoryService.SetApprovalAsync(id, isApproved: false);
+            if (result.IsFailed) return NotFound();
+
             TempData["Confirmation"] = "Rejected";
-            return RedirectToAction(nameof(Index), new { id });
+            return RedirectToAction(nameof(Index));
         }
 
         [Authorize]
@@ -248,27 +161,18 @@ namespace worldRecipeMvc.Controllers
         {
             if (id == null)
             {
-                _logger.LogWarning("Delete called with null id");
                 return NotFound();
             }
 
-            var category = await _context.Categories
-                .FirstOrDefaultAsync(m => m.CategoryID == id);
-            
-            if (category == null)
+            var result = await _categoryService.GetCategoryByIdAsync(id.Value);
+            if (result.IsFailed)
             {
-                _logger.LogWarning("Category with ID {CategoryId} not found for deletion", id);
                 return NotFound();
             }
 
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            bool isAdmin = User.IsInRole("Admin");
-            bool isOwner = category.OwnerID == userId;
-
-            // Only allow delete if: Admin OR (owner AND not approved)
-            if (!isAdmin && (!isOwner || category.IsApproved == true))
+            var category = result.Value;
+            if (!(IsAdmin || (category.OwnerID == UserId && category.IsApproved != true)))
             {
-                _logger.LogWarning("User {UserId} attempted to delete category {CategoryId} without permission", userId, id);
                 TempData["Error"] = "You can only delete your own unapproved categories.";
                 return RedirectToAction(nameof(Index));
             }
@@ -282,58 +186,31 @@ namespace worldRecipeMvc.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int? id)
         {
-            var category = await _context.Categories.FindAsync(id);
-            if (category != null)
+            if (id != null)
             {
-                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-                bool isAdmin = User.IsInRole("Admin");
-                bool isOwner = category.OwnerID == userId;
-
-                // Only allow delete if: Admin OR (owner AND not approved)
-                if (!isAdmin && (!isOwner || category.IsApproved == true))
+                var result = await _categoryService.DeleteCategoryAsync(id.Value, UserId!, IsAdmin);
+                if (result.HasError<ForbiddenError>())
                 {
-                    _logger.LogWarning("User {UserId} attempted to delete category {CategoryId} without permission", userId, id);
                     return Forbid();
                 }
-
-                // Check if any recipes use this category
-                var hasRecipes = await _context.Recipes.AnyAsync(r => r.CategoryID == id);
-                if (hasRecipes)
+                if (result.HasError<ConflictError>())
                 {
-                    _logger.LogWarning("Attempted to delete category {CategoryId} '{CategoryName}' but it's in use by recipes", id, category.CategoryName);
-                    TempData["Error"] = $"Cannot delete category '{category.CategoryName}' because it is used by one or more recipes.";
+                    TempData["Error"] = result.Errors.First().Message;
                     return RedirectToAction(nameof(Index));
                 }
-
-                _context.Categories.Remove(category);
-                await _context.SaveChangesAsync();
-                
-                _logger.LogInformation("Category {CategoryId} '{CategoryName}' deleted", id, category.CategoryName);
-                TempData["Confirmation"] = "Category deleted successfully.";
+                if (result.IsSuccess)
+                {
+                    TempData["Confirmation"] = "Category deleted successfully.";
+                }
             }
 
             return RedirectToAction(nameof(Index));
         }
 
-        public IActionResult ConfirmationCategory(int id)
+        public async Task<IActionResult> ConfirmationCategory(int id)
         {
-            var category = _context.Categories.FirstOrDefault(c => c.CategoryID == id);
-            if (category == null)
-            {
-                _logger.LogWarning("Category with ID {CategoryId} not found for confirmation page", id);
-                return NotFound();
-            }
-            return View(category);
-        }
-
-        private bool CategoryExists(int? id)
-        {
-            return _context.Categories.Any(e => e.CategoryID == id);
-        }
-
-        private bool CategoryExists(string? name)
-        {
-            return _context.Categories.Any(e => e.CategoryName == name);
+            var result = await _categoryService.GetCategoryByIdAsync(id);
+            return result.IsFailed ? NotFound() : View(result.Value);
         }
     }
 }
