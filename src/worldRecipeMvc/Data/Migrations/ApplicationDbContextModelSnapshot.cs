@@ -174,6 +174,9 @@ namespace worldRecipeMvc.Data.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("DisplayName")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -191,6 +194,9 @@ namespace worldRecipeMvc.Data.Migrations
 
                     b.Property<bool>("IsSuspended")
                         .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastLoginAtUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("LastName")
                         .HasMaxLength(50)
@@ -272,6 +278,24 @@ namespace worldRecipeMvc.Data.Migrations
                     b.ToTable("Categories");
                 });
 
+            modelBuilder.Entity("worldRecipeMvc.Models.Favorite", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("RecipeID")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("UserId", "RecipeID");
+
+                    b.HasIndex("RecipeID");
+
+                    b.ToTable("Favorites");
+                });
+
             modelBuilder.Entity("worldRecipeMvc.Models.Ingredient", b =>
                 {
                     b.Property<int?>("IngredientID")
@@ -305,6 +329,44 @@ namespace worldRecipeMvc.Data.Migrations
                     b.HasIndex("OwnerID");
 
                     b.ToTable("Ingredients");
+                });
+
+            modelBuilder.Entity("worldRecipeMvc.Models.Rating", b =>
+                {
+                    b.Property<int>("RatingID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("RatingID"));
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("RecipeID")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Stars")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("RatingID");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("RecipeID", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("Ratings");
                 });
 
             modelBuilder.Entity("worldRecipeMvc.Models.Recipe", b =>
@@ -343,7 +405,8 @@ namespace worldRecipeMvc.Data.Migrations
                         .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Status")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<int?>("Temperature")
                         .HasColumnType("int");
@@ -359,6 +422,8 @@ namespace worldRecipeMvc.Data.Migrations
 
                     b.HasIndex("RecipeName")
                         .IsUnique();
+
+                    b.HasIndex("Status");
 
                     b.ToTable("Recipes");
                 });
@@ -445,6 +510,25 @@ namespace worldRecipeMvc.Data.Migrations
                     b.Navigation("Owner");
                 });
 
+            modelBuilder.Entity("worldRecipeMvc.Models.Favorite", b =>
+                {
+                    b.HasOne("worldRecipeMvc.Models.Recipe", "Recipe")
+                        .WithMany("Favorites")
+                        .HasForeignKey("RecipeID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("worldRecipeMvc.Data.RecipeWorldUser", "User")
+                        .WithMany("Favorites")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Recipe");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("worldRecipeMvc.Models.Ingredient", b =>
                 {
                     b.HasOne("worldRecipeMvc.Data.RecipeWorldUser", "Owner")
@@ -452,6 +536,25 @@ namespace worldRecipeMvc.Data.Migrations
                         .HasForeignKey("OwnerID");
 
                     b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("worldRecipeMvc.Models.Rating", b =>
+                {
+                    b.HasOne("worldRecipeMvc.Models.Recipe", "Recipe")
+                        .WithMany("Ratings")
+                        .HasForeignKey("RecipeID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("worldRecipeMvc.Data.RecipeWorldUser", "User")
+                        .WithMany("Ratings")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Recipe");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("worldRecipeMvc.Models.Recipe", b =>
@@ -493,6 +596,10 @@ namespace worldRecipeMvc.Data.Migrations
 
             modelBuilder.Entity("worldRecipeMvc.Data.RecipeWorldUser", b =>
                 {
+                    b.Navigation("Favorites");
+
+                    b.Navigation("Ratings");
+
                     b.Navigation("Recipes");
                 });
 
@@ -508,6 +615,10 @@ namespace worldRecipeMvc.Data.Migrations
 
             modelBuilder.Entity("worldRecipeMvc.Models.Recipe", b =>
                 {
+                    b.Navigation("Favorites");
+
+                    b.Navigation("Ratings");
+
                     b.Navigation("RecipeIngredients");
                 });
 #pragma warning restore 612, 618

@@ -1,0 +1,46 @@
+@model worldRecipeMvc.Models.PagedResult<worldRecipeMvc.Models.ViewModels.DisplayRecipeViewModel>
+
+@{
+    ViewData["Title"] = "My Favorites";
+}
+
+<div class="container-fluid">
+    <div class="row mb-3 align-items-center">
+        <div class="col-md-6">
+            <h1 class="mb-0"><i class="bi bi-heart-fill text-danger"></i> @ViewData["Title"]</h1>
+            <p class="text-muted">@Model.TotalCount favorited recipe(s)</p>
+        </div>
+    </div>
+
+    @if (TempData["SaveConfirmation"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @TempData["SaveConfirmation"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (!Model.Items.Any())
+    {
+        <div class="alert alert-info" role="alert">
+            <h4 class="alert-heading">No favorites yet</h4>
+            <p>Browse <a asp-controller="Recipes" asp-action="Index">the recipes</a> and tap the heart on the ones you love.</p>
+        </div>
+    }
+    else
+    {
+        <div class="card-grid">
+            @foreach (var item in Model.Items)
+            {
+                <partial name="_RecipeCard" model="item" />
+            }
+        </div>
+
+        <partial name="_Pagination" model='new worldRecipeMvc.Models.ViewModels.PaginationViewModel
+        {
+            CurrentPage = Model.PageNumber,
+            TotalPages = Model.TotalPages,
+            Action = "Index"
+        }' />
+    }
+</div>

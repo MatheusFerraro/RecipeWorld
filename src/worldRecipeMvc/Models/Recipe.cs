@@ -34,6 +34,7 @@ namespace worldRecipeMvc.Models
         [Range(0, 1000, ErrorMessage = "Number of Servings must be a positive number")]
         public double? NumberOfServings { get; set; }
 
+        [StringLength(20)]
         public string? Status { get; set; }
 
         //Store the user ID of the recipe owner
@@ -52,6 +53,10 @@ namespace worldRecipeMvc.Models
         public int? Temperature { get; set; }
 
         public virtual ICollection<RecipeIngredient> RecipeIngredients { get; set; } = new List<RecipeIngredient>();
+
+        public virtual ICollection<Favorite> Favorites { get; set; } = new List<Favorite>();
+
+        public virtual ICollection<Rating> Ratings { get; set; } = new List<Rating>();
 
     }
 

@@ -1,0 +1,69 @@
+@using System.Security.Claims
+@model worldRecipeMvc.Models.ViewModels.DisplayRecipeViewModel
+
+@{
+    var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+    bool canManage = currentUserId != null && (User.IsInRole("Admin") || Model.OwnerID == currentUserId);
+}
+
+<div class="recipe-card">
+    <img src="@(Model.ImageUrl ?? "/WebsiteImages/RecipeDefaultImageNotAvailable.png")"
+         alt="@Model.RecipeName"
+         onerror="this.src='/WebsiteImages/RecipeDefaultImageNotAvailable.png'">
+
+    <div class="recipe-card-body">
+        <h5 class="recipe-card-title">@Model.RecipeName</h5>
+
+        <p class="recipe-card-text">
+            <span class="badge badge-@(Model.Status?.ToLower() ?? "draft")">
+                @Model.Status
+            </span>
+            <span class="text-warning ms-1" title="@Model.RatingCount review(s)">
+                <i class="bi bi-star-fill"></i>
+                <small>@(Model.AverageRating?.ToString("0.0") ?? "-") (@Model.RatingCount)</small>
+            </span>
+            <span class="text-danger ms-1" title="@Model.FavoriteCount favorite(s)">
+                <i class="bi @(Model.IsFavorited ? "bi-heart-fill" : "bi-heart")"></i>
+                <small>@Model.FavoriteCount</small>
+            </span>
+        </p>
+
+        <p class="recipe-card-text">
+            <strong>Category:</strong> @(Model.Category?.CategoryName ?? "Uncategorized")
+        </p>
+
+        <p class="recipe-card-text">
+            <strong>Prep:</strong> @(Model.PrepTime ?? "N/A") |
+            <strong>Cook:</strong> @(Model.CookTime ?? "N/A")
+        </p>
+
+        <p class="recipe-card-text">
+            <strong>Servings:</strong> @(Model.NumberOfServings?.ToString() ?? "N/A")
+        </p>
+
+        <p class="recipe-card-text text-muted">
+            <small>By @(Model.Owner?.UserName ?? "Unknown")</small>
+        </p>
+
+        <div class="d-grid gap-2">
+            <a asp-controller="Recipes" asp-action="Details" asp-route-id="@Model.RecipeID"
+               class="btn btn-outline-primary btn-sm">
+                View Details
+            </a>
+
+            @if (canManage)
+            {
+                <div class="btn-group" role="group">
+                    <a asp-controller="Recipes" asp-action="Edit" asp-route-id="@Model.RecipeID"
+                       class="btn btn-outline-secondary btn-sm">
+                        Edit
+                    </a>
+                    <a asp-controller="Recipes" asp-action="Delete" asp-route-id="@Model.RecipeID"
+                       class="btn btn-outline-danger btn-sm">
+                        Delete
+                    </a>
+                </div>
+            }
+        </div>
+    </div>
+</div>

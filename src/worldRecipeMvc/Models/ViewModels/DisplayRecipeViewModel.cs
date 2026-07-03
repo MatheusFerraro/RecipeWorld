@@ -40,6 +40,11 @@ namespace worldRecipeMvc.Models.ViewModels
         public string? ImageUrl { get; set; }
         public int? Temperature { get; set; }
 
+        public double? AverageRating { get; set; }
+        public int RatingCount { get; set; }
+        public int FavoriteCount { get; set; }
+        public bool IsFavorited { get; set; }
+
         public virtual ICollection<RecipeIngredient> RecipeIngredients { get; set; } = new List<RecipeIngredient>();
     }
 }

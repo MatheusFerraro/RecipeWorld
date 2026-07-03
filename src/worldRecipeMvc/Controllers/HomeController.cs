@@ -1,27 +1,29 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using worldRecipeMvc.Models;
+using worldRecipeMvc.Services;
 
 namespace worldRecipeMvc.Controllers
 {
     public class HomeController : Controller
     {
+        private readonly IRecipeService _recipeService;
         private readonly ILogger<HomeController> _logger;
 
-        public HomeController(ILogger<HomeController> logger)
+        public HomeController(IRecipeService recipeService, ILogger<HomeController> logger)
         {
+            _recipeService = recipeService;
             _logger = logger;
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index()
         {
-            _logger.LogInformation("Home page accessed");
-            return View();
+            var trending = await _recipeService.GetTrendingAsync();
+            return View(trending);
         }
 
         public IActionResult Privacy()
         {
-            _logger.LogInformation("Privacy page accessed");
             return View();
         }
 

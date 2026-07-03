@@ -1,4 +1,5 @@
-﻿@{
+@model worldRecipeMvc.Models.ViewModels.HomeTrendingViewModel
+@{
     ViewData["Title"] = "Home";
 }
 
@@ -15,85 +16,81 @@
 
 <div class="container">
     <div class="row">
-        <!-- Featured Recipe Section -->
+        <!-- Top Rated Section -->
         <div class="col-lg-8 mb-4">
             <h2 class="mb-4">
-                <i class="bi bi-star-fill text-warning"></i> Featured Recipe
+                <i class="bi bi-star-fill text-warning"></i> Top Rated Recipes
             </h2>
-            <a asp-controller="Recipes" asp-action="Details" asp-route-id="1" class="text-decoration-none">
-                <div class="card featured-recipe-card">
-                    <img src="~/WebsiteImages/5939580-overnight-cinnamon-rolls.jpg" 
-                         class="card-img-top" 
-                         alt="Overnight Cinnamon Rolls"
-                         onerror="this.src='/websiteImages/RecipeDefaultImage.png'">
-                    <div class="card-body">
-                        <h3 class="card-title text-dark">Overnight Cinnamon Rolls</h3>
-                        <p class="card-text text-muted">
-                            <i class="bi bi-clock"></i> Prep: 20 mins | 
-                            <i class="bi bi-fire"></i> Cook: 45 mins | 
-                            <i class="bi bi-people"></i> Serves: 8
-                        </p>
-                        <p class="card-text">
-                            Soft, fluffy, and packed with cinnamon flavor - these overnight cinnamon rolls 
-                            are perfect for a special breakfast or brunch!
-                        </p>
-                        <span class="badge bg-success">Published</span>
-                        <span class="badge" style="background-color: #93B7BE; color: white;">Desserts</span>
-                    </div>
+            @if (Model.TopRated.Any())
+            {
+                <div class="row">
+                    @foreach (var recipe in Model.TopRated)
+                    {
+                        <div class="col-md-6 mb-3">
+                            <a asp-controller="Recipes" asp-action="Details" asp-route-id="@recipe.RecipeID" class="text-decoration-none">
+                                <div class="card featured-recipe-card h-100">
+                                    <img src="@(recipe.ImageUrl ?? "/WebsiteImages/RecipeDefaultImageNotAvailable.png")"
+                                         class="card-img-top"
+                                         alt="@recipe.RecipeName"
+                                         style="height: 200px; object-fit: cover;"
+                                         onerror="this.src='/WebsiteImages/RecipeDefaultImageNotAvailable.png'">
+                                    <div class="card-body">
+                                        <h5 class="card-title text-dark">@recipe.RecipeName</h5>
+                                        <p class="card-text text-muted small mb-1">
+                                            <i class="bi bi-star-fill text-warning"></i>
+                                            @(recipe.AverageRating?.ToString("0.0") ?? "-") (@recipe.RatingCount review@(recipe.RatingCount == 1 ? "" : "s"))
+                                        </p>
+                                        @if (recipe.CategoryName != null)
+                                        {
+                                            <span class="badge" style="background-color: #93B7BE; color: white;">@recipe.CategoryName</span>
+                                        }
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                    }
                 </div>
-            </a>
+            }
+            else
+            {
+                <div class="alert alert-info">
+                    No rated recipes yet — be the first to <a asp-controller="Recipes" asp-action="Index">rate a recipe</a>!
+                </div>
+            }
         </div>
 
-        <!-- Popular Recipes Sidebar -->
+        <!-- Most Favorited Sidebar -->
         <div class="col-lg-4 mb-4">
             <h2 class="mb-4">
-                <i class="bi bi-fire text-danger"></i> Popular Recipes
+                <i class="bi bi-heart-fill text-danger"></i> Most Favorited
             </h2>
-            
-            <a asp-controller="Recipes" asp-action="Details" asp-route-id="1" class="text-decoration-none">
-                <div class="card popular-recipe-card">
-                    <img src="~/WebsiteImages/5939580-overnight-cinnamon-rolls.jpg" 
-                         class="card-img-top" 
-                         alt="Overnight Cinnamon Rolls"
-                         onerror="this.src='/websiteImages/RecipeDefaultImage.png'">
-                    <div class="card-body">
-                        <h5 class="card-title text-dark">Overnight Cinnamon Rolls</h5>
-                        <p class="card-text text-muted small">
-                            <i class="bi bi-clock"></i> 65 mins
-                        </p>
-                    </div>
+            @if (Model.MostFavorited.Any())
+            {
+                @foreach (var recipe in Model.MostFavorited)
+                {
+                    <a asp-controller="Recipes" asp-action="Details" asp-route-id="@recipe.RecipeID" class="text-decoration-none">
+                        <div class="card popular-recipe-card mb-3">
+                            <img src="@(recipe.ImageUrl ?? "/WebsiteImages/RecipeDefaultImageNotAvailable.png")"
+                                 class="card-img-top"
+                                 alt="@recipe.RecipeName"
+                                 style="height: 140px; object-fit: cover;"
+                                 onerror="this.src='/WebsiteImages/RecipeDefaultImageNotAvailable.png'">
+                            <div class="card-body">
+                                <h5 class="card-title text-dark">@recipe.RecipeName</h5>
+                                <p class="card-text text-muted small mb-0">
+                                    <i class="bi bi-heart-fill text-danger"></i> @recipe.FavoriteCount favorite@(recipe.FavoriteCount == 1 ? "" : "s")
+                                </p>
+                            </div>
+                        </div>
+                    </a>
+                }
+            }
+            else
+            {
+                <div class="alert alert-info">
+                    No favorites yet — sign in and start bookmarking recipes you love!
                 </div>
-            </a>
-            
-            <a asp-controller="Recipes" asp-action="Details" asp-route-id="2" class="text-decoration-none">
-                <div class="card popular-recipe-card">
-                    <img src="~/WebsiteImages/grandmas-chicken-soup.jpg" 
-                         class="card-img-top" 
-                         alt="Grandma's Chicken Soup"
-                         onerror="this.src='/websiteImages/RecipeDefaultImage.png'">
-                    <div class="card-body">
-                        <h5 class="card-title text-dark">Grandma's Chicken Soup</h5>
-                        <p class="card-text text-muted small">
-                            <i class="bi bi-clock"></i> 90 mins
-                        </p>
-                    </div>
-                </div>
-            </a>
-            
-            <a asp-controller="Recipes" asp-action="Details" asp-route-id="3" class="text-decoration-none">
-                <div class="card popular-recipe-card">
-                    <img src="~/WebsiteImages/Protein-Pancakes.jpg" 
-                         class="card-img-top" 
-                         alt="Protein Pancakes"
-                         onerror="this.src='/websiteImages/RecipeDefaultImage.png'">
-                    <div class="card-body">
-                        <h5 class="card-title text-dark">Protein Pancakes</h5>
-                        <p class="card-text text-muted small">
-                            <i class="bi bi-clock"></i> 30 mins
-                        </p>
-                    </div>
-                </div>
-            </a>
+            }
         </div>
     </div>
 
@@ -111,7 +108,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="col-md-4 mb-3">
             <div class="card h-100 text-center" style="border-color: #93B7BE;">
                 <div class="card-body">
@@ -124,7 +121,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="col-md-4 mb-3">
             <div class="card h-100 text-center" style="border-color: #93B7BE;">
                 <div class="card-body">
@@ -139,8 +136,3 @@
         </div>
     </div>
 </div>
-
-
-
-
-
