@@ -1,0 +1,27 @@
+# Render blueprint: deploys Recipe World as a single Docker web service on the
+# free tier, using SQLite instead of a database service. Note: the free tier has
+# no persistent disk, so data resets to the seeded sample on every deploy —
+# fine for a portfolio demo.
+services:
+  - type: web
+    name: recipeworld
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Database__Provider
+        value: Sqlite
+      - key: Database__SqlitePath
+        value: /app/data/recipeworld.db
+      - key: ImageUpload__StoragePath
+        value: /app/uploads/recipes
+      - key: UseHttpsRedirection
+        value: "false" # Render terminates TLS at its proxy
+      - key: Jwt__Key
+        generateValue: true
+      - key: SeedData__DemoPassword
+        value: Demo123!
+      - key: SeedData__AdminPassword
+        sync: false # set a private value in the Render dashboard

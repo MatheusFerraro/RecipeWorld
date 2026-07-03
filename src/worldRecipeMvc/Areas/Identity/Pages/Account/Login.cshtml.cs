@@ -15,11 +15,13 @@ namespace worldRecipeMvc.Areas.Identity.Pages.Account
     public class LoginModel : PageModel
     {
         private readonly SignInManager<RecipeWorldUser> _signInManager;
+        private readonly UserManager<RecipeWorldUser> _userManager;
         private readonly ILogger<LoginModel> _logger;
 
-        public LoginModel(SignInManager<RecipeWorldUser> signInManager, ILogger<LoginModel> logger)
+        public LoginModel(SignInManager<RecipeWorldUser> signInManager, UserManager<RecipeWorldUser> userManager, ILogger<LoginModel> logger)
         {
             _signInManager = signInManager;
+            _userManager = userManager;
             _logger = logger;
         }
 
@@ -110,6 +112,15 @@ namespace worldRecipeMvc.Areas.Identity.Pages.Account
                 if (result.Succeeded)
                 {
                     _logger.LogInformation("User logged in.");
+
+                    // Track activity for the admin hub
+                    var user = await _userManager.FindByEmailAsync(Input.Email);
+                    if (user != null)
+                    {
+                        user.LastLoginAtUtc = DateTime.UtcNow;
+                        await _userManager.UpdateAsync(user);
+                    }
+
                     return LocalRedirect(returnUrl);
                 }
                 if (result.RequiresTwoFactor)

@@ -1,0 +1,140 @@
+@model worldRecipeMvc.Models.ViewModels.UserAdminIndexViewModel
+
+@{
+    ViewData["Title"] = "Admin Hub";
+}
+
+<div class="container-fluid">
+    <div class="row mb-3 align-items-center">
+        <div class="col-md-8">
+            <h1 class="mb-0"><i class="bi bi-shield-lock"></i> @ViewData["Title"]</h1>
+            <p class="text-muted">@Model.Users.TotalCount registered user(s)</p>
+        </div>
+    </div>
+
+    @if (TempData["Confirmation"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @TempData["Confirmation"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @TempData["Error"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <!-- Search bar -->
+    <form asp-action="Index" method="get" class="row g-2 mb-3">
+        <div class="col-md-5">
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" name="searchTerm" value="@Model.SearchTerm" class="form-control"
+                       placeholder="Search by email or name..." />
+            </div>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">Search</button>
+            @if (!string.IsNullOrWhiteSpace(Model.SearchTerm))
+            {
+                <a asp-action="Index" class="btn btn-outline-secondary">Clear</a>
+            }
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>User</th>
+                    <th>Roles</th>
+                    <th>Joined</th>
+                    <th>Last login</th>
+                    <th class="text-center">Recipes</th>
+                    <th class="text-center">Status</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var user in Model.Users.Items)
+                {
+                    var isSelf = user.Id == Model.CurrentUserId;
+                    <tr>
+                        <td>
+                            <strong>@user.Email</strong>
+                            @if (!string.IsNullOrWhiteSpace(user.DisplayName))
+                            {
+                                <br /><small class="text-muted">@user.DisplayName</small>
+                            }
+                            @if (isSelf)
+                            {
+                                <span class="badge bg-info text-dark ms-1">You</span>
+                            }
+                        </td>
+                        <td>
+                            @foreach (var role in user.Roles)
+                            {
+                                <span class="badge @(role == "Admin" ? "bg-dark" : "bg-secondary")">@role</span>
+                            }
+                        </td>
+                        <td><small>@user.CreatedAtUtc.ToString("MMM d, yyyy")</small></td>
+                        <td>
+                            <small>@(user.LastLoginAtUtc?.ToString("MMM d, yyyy HH:mm") ?? "Never")</small>
+                        </td>
+                        <td class="text-center">@user.RecipeCount</td>
+                        <td class="text-center">
+                            @if (user.IsLockedOut)
+                            {
+                                <span class="badge bg-danger">Locked</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Active</span>
+                            }
+                        </td>
+                        <td class="text-center">
+                            @if (!isSelf)
+                            {
+                                <div class="btn-group" role="group">
+                                    @if (user.IsLockedOut)
+                                    {
+                                        <form asp-action="Unlock" asp-route-id="@user.Id" method="post" class="d-inline">
+                                            <button type="submit" class="btn btn-sm btn-success" title="Unlock account">
+                                                <i class="bi bi-unlock"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <form asp-action="Lock" asp-route-id="@user.Id" method="post" class="d-inline">
+                                            <button type="submit" class="btn btn-sm btn-warning" title="Lock account">
+                                                <i class="bi bi-lock"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                    <form asp-action="Delete" asp-route-id="@user.Id" method="post" class="d-inline"
+                                          onsubmit="return confirm('Delete @user.Email? Their recipes stay but lose their owner. This cannot be undone.');">
+                                        <button type="submit" class="btn btn-sm btn-danger" title="Delete account">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <partial name="_Pagination" model='new worldRecipeMvc.Models.ViewModels.PaginationViewModel
+    {
+        CurrentPage = Model.Users.PageNumber,
+        TotalPages = Model.Users.TotalPages,
+        Action = "Index",
+        RouteValues = new Dictionary<string, string?> { ["searchTerm"] = Model.SearchTerm }
+    }' />
+</div>
