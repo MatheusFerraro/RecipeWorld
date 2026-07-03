@@ -315,5 +315,5 @@ sql/
 *.db
 *.db-shm
 *.db-wal
-data/
+/data/
 src/worldRecipeMvc/wwwroot/images/recipes/
