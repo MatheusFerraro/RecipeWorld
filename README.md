@@ -102,20 +102,26 @@ graph TB
 ### 👤 User Experience
 
 - **Recipe management:** Users can create, read, update, and delete (CRUD) their own recipes.
-- **Smart search:** Filter by category, ingredient, or status using LINQ queries.
-- **Image handling:** File uploads with validation and storage on disk.
-- **Interactive UI:** Responsive layout with Bootstrap and client-side validation feedback.
+- **Favorites:** Bookmark recipes with one click and revisit them on a personal **My Favorites** page.
+- **Ratings & reviews:** 1–5 star reviews with comments; averages shown on cards and detail pages.
+- **Trending home page:** Top-rated and most-favorited recipes, served from an in-memory cache.
+- **Smart search & pagination:** Search and windowed pagination across recipes, categories, and ingredients.
+- **Image handling:** Uploads validated by extension, size, and file signature (magic bytes).
 
 ### 🛡️ Admin & Security
 
 - **Approval workflows:** New ingredients and categories enter a **Pending** state and require admin approval.
-- **Role management:** Distinct capabilities for **Admin** vs **User** roles.
-- **Secure seeding:** Seeds default roles and an admin account for fast local setup.
+- **Role management:** Distinct capabilities for **Admin** vs **User** roles, enforced in the service layer.
+- **Rate limiting:** Per-IP global limits plus a strict policy on the login endpoint (HTTP 429).
+- **Configurable seeding:** Demo/admin account passwords come from configuration — no credentials in source.
 
 ### 🧪 API & Testing
 
-- **REST API:** Exposes endpoints (documented in Swagger UI during development).
-- **Unit testing:** Service-level tests with xUnit + Moq + EF Core In-Memory.
+- **REST API with JWT:** `POST /api/auth/login` issues Bearer tokens; endpoints documented in Swagger UI.
+- **Result pattern:** Services return FluentResults `Result<T>` mapped to proper HTTP codes (400/403/404/409).
+- **Testing:** 90 tests — xUnit service tests (EF Core In-Memory) plus full integration tests
+  (`WebApplicationFactory` + SQLite in-memory) covering auth, rate limiting, and the API surface.
+- **Observability:** Serilog structured logging and a `/health` endpoint.
 
 ## 🗂️ Project Structure
 
@@ -152,39 +158,67 @@ cd RecipeWorld
 
 2) Configure database
 
-Update the connection string in `src/worldRecipeMvc/appsettings.json` if you are not using LocalDB:
+Update the connection string in `src/worldRecipeMvc/appsettings.json` if you are not using a local SQL Server:
 
 ```json
 {
   "ConnectionStrings": {
-    "RecipeWorldConnectionString": "Server=(localdb)\\mssqllocaldb;Database=RecipeWorldDB;Trusted_Connection=True;MultipleActiveResultSets=true"
+    "RecipeWorldConnectionString": "Server=(local);Database=WorldRecipeDb;Trusted_Connection=True;MultipleActiveResultSets=true;Encrypt=false"
   }
 }
 ```
 
-3) Apply migrations
+3) Run the application (migrations and sample data are applied automatically at startup)
 
 ```bash
-cd src/worldRecipeMvc
-dotnet ef database update
-```
-
-4) Run the application
-
-```bash
-dotnet run
+dotnet run --project src/worldRecipeMvc
 ```
 
 ### Access the app
 
-- Web UI: https://localhost:7198 (port may vary)
-- Swagger API: https://localhost:7198/swagger
+- Web UI: https://localhost:7008 (port may vary)
+- Swagger API: https://localhost:7008/swagger
+- Health check: https://localhost:7008/health
+
+Demo accounts (Development): `demo@recipeworld.com` / `Demo123!` and `admin@recipeworld.com` / `Admin123!`
+(configured in `appsettings.Development.json` under `SeedData`).
+
+### 🐳 Run with Docker
+
+The compose stack includes the app and a SQL Server 2022 container, with named volumes
+for database data and uploaded images:
+
+```bash
+cp .env.example .env    # set MSSQL_SA_PASSWORD and JWT_KEY
+docker compose up --build
+```
+
+Then open http://localhost:8080 — see [README.Docker.md](README.Docker.md) for details.
+
+### 🔑 Using the API
+
+```bash
+# 1. Get a token
+curl -X POST http://localhost:8080/api/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"email":"demo@recipeworld.com","password":"Demo123!"}'
+
+# 2. Call authenticated endpoints with the Bearer token
+curl -X POST http://localhost:8080/api/RecipesApi \
+     -H "Authorization: Bearer <token>" \
+     -H "Content-Type: application/json" \
+     -d '{"recipeName":"My Recipe","instructions":"1. Cook."}'
+```
 
 ## 🧪 Running Tests
 
 ```bash
-dotnet test src/worldRecipeMvc.Tests/worldRecipeMvc.Tests.csproj
+dotnet test worldRecipeMvc.sln
 ```
+
+90 tests: service-level unit tests (xUnit + EF Core In-Memory) and end-to-end integration
+tests (`WebApplicationFactory` over SQLite in-memory) covering the API, JWT auth, rate limiting,
+and MVC smoke paths.
 
 ## 📄 License
 
