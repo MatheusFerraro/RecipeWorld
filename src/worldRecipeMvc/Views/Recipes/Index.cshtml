@@ -6,7 +6,6 @@
 
 @{
     ViewData["Title"] = "Recipes";
-    var totalPages = (int)Math.Ceiling(Model.TotalCount / (double)Model.PageSize);
 }
 
 <div class="container-fluid">
@@ -59,10 +58,10 @@
                 <div class="col-md-3">
                     <select name="statusFilter" class="form-select">
                         <option value="">All Status</option>
-                        <option value="Public" selected="@(Model.StatusFilter == "Public")">Public</option>
-                        <option value="Draft" selected="@(Model.StatusFilter == "Draft")">Draft</option>
-                        <option value="Private" selected="@(Model.StatusFilter == "Private")">Private</option>
-                        <option value="Pending" selected="@(Model.StatusFilter == "Pending")">Pending</option>
+                        @foreach (var status in worldRecipeMvc.Models.RecipeStatus.All)
+                        {
+                            <option value="@status" selected="@(Model.StatusFilter == status)">@status</option>
+                        }
                     </select>
                 </div>
                 <div class="col-md-2">
@@ -94,110 +93,31 @@
         <div class="card-grid">
             @foreach (var item in Model.Recipes)
             {
-                <div class="recipe-card">
-                    <img src="@(item.ImageUrl ?? "/WebsiteImages/RecipeDefaultImageNotAvailable.png")" 
-                         alt="@item.RecipeName" 
-                         onerror="this.src='/websiteImages/RecipeDefaultImageNotAvailable.png'">
-                    
-                    <div class="recipe-card-body">
-                        <h5 class="recipe-card-title">@item.RecipeName</h5>
-                        
-                        <p class="recipe-card-text">
-                            <span class="badge badge-@(item.Status?.ToLower() ?? "draft")">
-                                @item.Status
-                            </span>
-                        </p>
-                        
-                        <p class="recipe-card-text">
-                            <strong>Category:</strong> @(item.Category?.CategoryName ?? "Uncategorized")
-                        </p>
-                        
-                        <p class="recipe-card-text">
-                            <strong>Prep:</strong> @(item.PrepTime ?? "N/A") | 
-                            <strong>Cook:</strong> @(item.CookTime ?? "N/A")
-                        </p>
-                        
-                        <p class="recipe-card-text">
-                            <strong>Servings:</strong> @(item.NumberOfServings?.ToString() ?? "N/A")
-                        </p>
-                        
-                        <p class="recipe-card-text text-muted">
-                            <small>By @(item.Owner?.UserName ?? "Unknown")</small>
-                        </p>
-                        
-                        <div class="d-grid gap-2">
-                            <a asp-action="Details" asp-route-id="@item.RecipeID" 
-                               class="btn btn-outline-primary btn-sm">
-                                View Details
-                            </a>
-                            
-                            @if (SignInManager.IsSignedIn(User))
-                            {
-                                <div class="btn-group" role="group">
-                                    <a asp-action="Edit" asp-route-id="@item.RecipeID" 
-                                       class="btn btn-outline-secondary btn-sm">
-                                        Edit
-                                    </a>
-                                    <a asp-action="Delete" asp-route-id="@item.RecipeID" 
-                                       class="btn btn-outline-danger btn-sm">
-                                        Delete
-                                    </a>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                </div>
+                <partial name="_RecipeCard" model="item" />
             }
         </div>
 
         <!-- Pagination -->
-        @if (totalPages > 1)
+        @if (Model.TotalPages > 1)
         {
             <div class="pagination-wrapper">
                 <div class="pagination-info">
-                    Showing @((Model.PageNumber - 1) * Model.PageSize + 1) to 
-                    @(Math.Min(Model.PageNumber * Model.PageSize, Model.TotalCount)) of 
+                    Showing @((Model.PageNumber - 1) * Model.PageSize + 1) to
+                    @(Math.Min(Model.PageNumber * Model.PageSize, Model.TotalCount)) of
                     @Model.TotalCount recipes
                 </div>
-                <nav>
-                    <ul class="pagination">
-                        <li class="page-item @(Model.PageNumber == 1 ? "disabled" : "")">
-                            <a class="page-link" 
-                               asp-action="Index" 
-                               asp-route-pageNumber="@(Model.PageNumber - 1)"
-                               asp-route-searchTerm="@Model.SearchTerm"
-                               asp-route-categoryFilter="@Model.CategoryFilter"
-                               asp-route-statusFilter="@Model.StatusFilter">
-                                Previous
-                            </a>
-                        </li>
-
-                        @for (int i = 1; i <= totalPages; i++)
-                        {
-                            <li class="page-item @(i == Model.PageNumber ? "active" : "")">
-                                <a class="page-link" 
-                                   asp-action="Index" 
-                                   asp-route-pageNumber="@i"
-                                   asp-route-searchTerm="@Model.SearchTerm"
-                                   asp-route-categoryFilter="@Model.CategoryFilter"
-                                   asp-route-statusFilter="@Model.StatusFilter">
-                                    @i
-                                </a>
-                            </li>
-                        }
-
-                        <li class="page-item @(Model.PageNumber == totalPages ? "disabled" : "")">
-                            <a class="page-link" 
-                               asp-action="Index" 
-                               asp-route-pageNumber="@(Model.PageNumber + 1)"
-                               asp-route-searchTerm="@Model.SearchTerm"
-                               asp-route-categoryFilter="@Model.CategoryFilter"
-                               asp-route-statusFilter="@Model.StatusFilter">
-                                Next
-                            </a>
-                        </li>
-                    </ul>
-                </nav>
+                <partial name="_Pagination" model='new worldRecipeMvc.Models.ViewModels.PaginationViewModel
+                {
+                    CurrentPage = Model.PageNumber,
+                    TotalPages = Model.TotalPages,
+                    Action = "Index",
+                    RouteValues = new Dictionary<string, string?>
+                    {
+                        ["searchTerm"] = Model.SearchTerm,
+                        ["categoryFilter"] = Model.CategoryFilter?.ToString(),
+                        ["statusFilter"] = Model.StatusFilter
+                    }
+                }' />
             </div>
         }
     }

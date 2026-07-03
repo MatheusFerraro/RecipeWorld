@@ -15,8 +15,8 @@ namespace worldRecipeMvc.Models
         public int? IngredientID { get; set; }
         public virtual Ingredient? Ingredient { get; set; }
 
-        [Range(0, 1000, ErrorMessage = "Amount must be a positive number")]
-        public double? Amount { get; set; } //For exampl: "1.5" or "2"
+        [Range(0.01, 1000, ErrorMessage = "Amount must be greater than zero")]
+        public double? Amount { get; set; } //For example: "1.5" or "2"
 
         [StringLength(50)]
         public string? Unit { get; set; } //example: "cup" or "grams"

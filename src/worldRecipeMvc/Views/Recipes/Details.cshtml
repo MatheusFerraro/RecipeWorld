@@ -1,10 +1,31 @@
-﻿@model worldRecipeMvc.Models.Recipe
+﻿@using worldRecipeMvc.Services
+@model worldRecipeMvc.Models.Recipe
 
 @{
     ViewData["Title"] = "Details";
     var items = Model.RecipeIngredients.Zip((List<string>)ViewData["Amount"], (i, a) => new { Ingredient = i, Amount = a });
-    var currentUserId = User.Identity.IsAuthenticated ? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value : null;
-    bool canChangeStatus = User.Identity.IsAuthenticated && (User.IsInRole("Admin") || Model.OwnerID == currentUserId);
+    var currentUserId = User.Identity?.IsAuthenticated == true ? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value : null;
+    bool canChangeStatus = currentUserId != null && (User.IsInRole("Admin") || Model.OwnerID == currentUserId);
+
+    RatingSummary ratingSummary = ViewBag.RatingSummary;
+    worldRecipeMvc.Models.PagedResult<worldRecipeMvc.Models.Rating> reviews = ViewBag.Reviews;
+    FavoriteInfo favoriteInfo = ViewBag.FavoriteInfo;
+    bool isOwner = ViewBag.IsOwner;
+}
+
+@if (TempData["SaveConfirmation"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        @TempData["SaveConfirmation"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        @TempData["Error"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
 }
 
 <div class="position-relative mb-3">
@@ -18,8 +39,35 @@
     </div>
 </div>
 <div>
-    <h4>Recipe Name: @Model.RecipeName</h4>
-    
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+        <h4 class="mb-0">Recipe Name: @Model.RecipeName</h4>
+
+        <span class="text-muted">
+            <i class="bi bi-star-fill text-warning"></i>
+            @(ratingSummary.AverageStars?.ToString("0.0") ?? "No ratings")
+            @if (ratingSummary.Count > 0)
+            {
+                <span>(@ratingSummary.Count review@(ratingSummary.Count == 1 ? "" : "s"))</span>
+            }
+        </span>
+
+        @if (currentUserId != null)
+        {
+            <form asp-controller="Favorites" asp-action="Toggle" method="post" class="d-inline">
+                <input type="hidden" name="recipeId" value="@Model.RecipeID" />
+                <input type="hidden" name="returnUrl" value="@Context.Request.Path" />
+                <button type="submit" class="btn btn-sm @(favoriteInfo.IsFavoritedByCurrentUser ? "btn-danger" : "btn-outline-danger")">
+                    <i class="bi @(favoriteInfo.IsFavoritedByCurrentUser ? "bi-heart-fill" : "bi-heart")"></i>
+                    @favoriteInfo.Count
+                </button>
+            </form>
+        }
+        else if (favoriteInfo.Count > 0)
+        {
+            <span class="text-muted"><i class="bi bi-heart-fill text-danger"></i> @favoriteInfo.Count</span>
+        }
+    </div>
+
     <hr />
     <dl class="row">
         <dd class="col-sm-12 position-relative">
@@ -126,6 +174,79 @@
         </ul>
     </div>
 </div>
+
+<hr />
+<h4><i class="bi bi-chat-square-text"></i> Reviews</h4>
+
+@if (currentUserId != null && !isOwner)
+{
+    var myRating = ratingSummary.CurrentUserRating;
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">@(myRating == null ? "Leave a review" : "Update your review")</h6>
+            <form asp-controller="Ratings" asp-action="Rate" method="post">
+                <input type="hidden" name="recipeId" value="@Model.RecipeID" />
+                <div class="mb-2 star-rating-input">
+                    @for (int star = 1; star <= 5; star++)
+                    {
+                        <input type="radio" class="btn-check" name="stars" id="star-@star" value="@star"
+                               checked="@(myRating?.Stars == star)" required />
+                        <label class="btn btn-sm btn-outline-warning" for="star-@star">@star <i class="bi bi-star-fill"></i></label>
+                    }
+                </div>
+                <div class="mb-2">
+                    <textarea name="comment" class="form-control" rows="2" maxlength="1000"
+                              placeholder="Share what you thought about this recipe (optional)">@myRating?.Comment</textarea>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-send"></i> @(myRating == null ? "Submit Review" : "Update Review")
+                </button>
+                @if (myRating != null)
+                {
+                    <button type="submit" class="btn btn-outline-danger btn-sm"
+                            formaction="@Url.Action("Delete", "Ratings")">
+                        <i class="bi bi-trash"></i> Delete Review
+                    </button>
+                }
+            </form>
+        </div>
+    </div>
+}
+else if (currentUserId == null)
+{
+    <p class="text-muted">
+        <a asp-area="Identity" asp-page="/Account/Login" asp-route-returnUrl="@Context.Request.Path">Sign in</a> to leave a review.
+    </p>
+}
+
+@if (reviews.Items.Any())
+{
+    <div class="list-group mb-3" style="max-width: 700px;">
+        @foreach (var review in reviews.Items)
+        {
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                    <strong>@(review.User?.FullName is { Length: > 0 } name ? name : review.User?.UserName ?? "Anonymous")</strong>
+                    <small class="text-muted">@review.CreatedAtUtc.ToString("MMM d, yyyy")</small>
+                </div>
+                <div class="text-warning">
+                    @for (int star = 1; star <= 5; star++)
+                    {
+                        <i class="bi @(star <= review.Stars ? "bi-star-fill" : "bi-star")"></i>
+                    }
+                </div>
+                @if (!string.IsNullOrWhiteSpace(review.Comment))
+                {
+                    <p class="mb-0 mt-1">@review.Comment</p>
+                }
+            </div>
+        }
+    </div>
+}
+else
+{
+    <p class="text-muted">No reviews yet.</p>
+}
 
 <div style="padding-top: 1em">
     <a asp-action="Index" class="btn btn-primary">Back to List</a>
