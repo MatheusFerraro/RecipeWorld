@@ -28,8 +28,9 @@ The compose stack runs two containers:
    The server waits for the database healthcheck before starting; the first
    boot takes a minute while SQL Server initializes and migrations run.
 
-3. Open http://localhost:8080 — log in with the seeded demo or admin account
-   (passwords come from `DEMO_PASSWORD` / `ADMIN_PASSWORD` in `.env`).
+3. Open http://localhost:8080 — log in with the seeded demo account
+   (password comes from `DEMO_PASSWORD` in `.env`). To seed a local admin
+   account, set `ADMIN_PASSWORD` in `.env` before first startup.
    Swagger UI: http://localhost:8080/swagger. Health: http://localhost:8080/health.
 
 ## Data persistence

@@ -6,6 +6,10 @@
 
 This project was built to showcase proficiency in **N-Tier Architecture**, **Secure Authentication**, **Database Management**, and **Unit Testing**. It features a complete recipe management ecosystem with role-based security, ingredient tracking, and an admin approval workflow.
 
+**Live demo:** https://recipeworld-p1x5.onrender.com/
+
+The hosted Render demo uses SQLite on the free tier, so seeded sample data can reset on redeploy. Public demo credentials are limited to the demo user; admin credentials and signing keys are supplied through private environment variables.
+
 ---
 
 ## 📸 Screenshots
@@ -113,7 +117,7 @@ graph TB
 - **Approval workflows:** New ingredients and categories enter a **Pending** state and require admin approval.
 - **Role management:** Distinct capabilities for **Admin** vs **User** roles, enforced in the service layer.
 - **Rate limiting:** Per-IP global limits plus a strict policy on the login endpoint (HTTP 429).
-- **Configurable seeding:** Demo/admin account passwords come from configuration — no credentials in source.
+- **Configurable seeding:** Demo/admin account passwords come from configuration; production secrets are supplied by environment variables, not source files.
 
 ### 🧪 API & Testing
 
@@ -180,8 +184,9 @@ dotnet run --project src/worldRecipeMvc
 - Swagger API: https://localhost:7008/swagger
 - Health check: https://localhost:7008/health
 
-Demo accounts (Development): `demo@recipeworld.com` / `Demo123!` and `admin@recipeworld.com` / `Admin123!`
-(configured in `appsettings.Development.json` under `SeedData`).
+Demo account: `demo@recipeworld.com` / `Demo123!`
+
+For local development, you can also seed an admin account by setting `SeedData:AdminPassword` in user secrets, an ignored `appsettings.Development.json`, or environment variables. Do not commit real admin passwords, JWT keys, database passwords, or `.env` files.
 
 ### 🐳 Run with Docker
 

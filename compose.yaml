@@ -12,7 +12,7 @@ services:
       ImageUpload__StoragePath: /app/uploads/recipes
       UseHttpsRedirection: "false"
       SeedData__DemoPassword: ${DEMO_PASSWORD:-Demo123!}
-      SeedData__AdminPassword: ${ADMIN_PASSWORD:-Admin123!}
+      SeedData__AdminPassword: ${ADMIN_PASSWORD:-}
       Jwt__Key: ${JWT_KEY:?set JWT_KEY in .env (at least 32 characters)}
     volumes:
       - recipe-uploads:/app/uploads
